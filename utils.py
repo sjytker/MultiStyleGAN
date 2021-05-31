@@ -18,6 +18,11 @@ import yaml
 import numpy as np
 import torch.nn.init as init
 import time
+import logging
+
+
+FORMAT = "{%(asctime)s %(name)s} %(message)s"
+logging.basicConfig(level=logging.INFO,format=FORMAT,datefmt="[%Y-%m-%d %H:%M:%S]")
 # Methods
 # get_all_data_loaders      : primary data loader interface (load trainA, testA, trainB, testB)
 # get_data_loader_list      : list-based data loader

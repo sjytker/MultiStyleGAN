@@ -6,6 +6,8 @@ from torch import nn
 from torch.autograd import Variable
 import torch
 import torch.nn.functional as F
+import logging
+from utils import *
 try:
     from itertools import izip as zip
 except ImportError: # will be 3.x series
@@ -99,30 +101,37 @@ class AdaINGen(nn.Module):
         mlp_dim = params['mlp_dim']
 
         # style encoder
-        self.enc_style = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
+        self.enc_style_texture = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
+        self.enc_style_physic = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
 
         # content encoder
         self.enc_content = ContentEncoder(n_downsample, n_res, input_dim, dim, 'in', activ, pad_type=pad_type)
         self.dec = Decoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
 
         # MLP to generate AdaIN parameters
-        self.mlp = MLP(style_dim, self.get_num_adain_params(self.dec), mlp_dim, 3, norm='none', activ=activ)
+        # todo : compared with MUNIT, here we should use 2 * style_dim
+        self.mlp = MLP(2 * style_dim, self.get_num_adain_params(self.dec), mlp_dim, 3, norm='none', activ=activ)
+
+        self.logger = logging.getLogger(self.__class__.__name__)
 
     def forward(self, images):
         # reconstruct an image
-        content, style_fake = self.encode(images)
-        images_recon = self.decode(content, style_fake)
+        content, style_texture, style_physic = self.encode(images)
+        images_recon = self.decode(content, style_texture, style_physic)
         return images_recon
 
     def encode(self, images):
         # encode an image to its content and style codes
-        style_fake = self.enc_style(images)
+        style_texture = self.enc_style_texture(images)
+        style_physic = self.enc_style_physic(images)
         content = self.enc_content(images)
-        return content, style_fake
+        return content, style_texture, style_physic
 
-    def decode(self, content, style):
-        # todo : how does style work?  Why put into AdaptiveInstanceNorm2d layer?
+    def decode(self, content, style_texture, style_physic):
         # decode content and style codes to an image
+        self.logger.info(f'style_texture shape : ', style_texture.shape)
+        self.logger.info(f'style_physic shape : ', style_physic.shape)
+        style = torch.cat([style_texture, style_physic], dim=1)
         adain_params = self.mlp(style)
         self.assign_adain_params(adain_params, self.dec)
         images = self.dec(content)
