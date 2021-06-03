@@ -109,7 +109,15 @@ class AdaINGen(nn.Module):
         self.dec = Decoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
 
         # MLP to generate AdaIN parameters
+<<<<<<< HEAD
         # todo : ----------- compared with MUNIT, here we should use 2 * style_dim -------------------
+=======
+<<<<<<< HEAD
+        # todo : ----------- compared with MUNIT, here we should use 2 * style_dim -------------------
+=======
+        # TODO: ----------- compared with MUNIT, here we should use 2 * style_dim -------------------
+>>>>>>> 7bc240b (Modify G && D to be multi-style, only reconstruct ab, ba. Tested at edges2shoes dataset first, which must be worked.)
+>>>>>>> 532fc1c (Modify G && D to be multi-style, only reconstruct ab, ba. Tested at edges2shoes dataset first, which must be worked.)
         self.mlp = MLP(2 * style_dim, self.get_num_adain_params(self.dec), mlp_dim, 3, norm='none', activ=activ)
 
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -129,10 +137,25 @@ class AdaINGen(nn.Module):
 
     def decode(self, content, style_texture, style_physic):
         # decode content and style codes to an image
+<<<<<<< HEAD
         # todo : Core idea, waits to be verified
         self.logger.info(f'style_texture shape : {style_texture.shape}')
         self.logger.info(f'style_physic shape : {style_physic.shape}')
+=======
+<<<<<<< HEAD
+        # todo : Core idea, waits to be verified
+        self.logger.info(f'style_texture shape : {style_texture.shape}')
+        self.logger.info(f'style_physic shape : {style_physic.shape}')
+=======
+        # TODO: ------------------Core Change--------------
+>>>>>>> 7bc240b (Modify G && D to be multi-style, only reconstruct ab, ba. Tested at edges2shoes dataset first, which must be worked.)
+>>>>>>> 532fc1c (Modify G && D to be multi-style, only reconstruct ab, ba. Tested at edges2shoes dataset first, which must be worked.)
         style = torch.cat([style_texture, style_physic], dim=1)
+        # self.logger.info('------------------------------------------------')
+        # self.logger.info(f'style_texture shape : {style_texture.shape}')
+        # self.logger.info(f'style_physic shape : {style_physic.shape}')
+        # self.logger.info(f'style shape : {style.shape}')
+        # self.logger.info(f'content shape {content.shape}')
         adain_params = self.mlp(style)
         self.assign_adain_params(adain_params, self.dec)
         images = self.dec(content)
@@ -158,38 +181,38 @@ class AdaINGen(nn.Module):
         return num_adain_params
 
 
-class VAEGen(nn.Module):
-    # VAE architecture
-    def __init__(self, input_dim, params):
-        super(VAEGen, self).__init__()
-        dim = params['dim']
-        n_downsample = params['n_downsample']
-        n_res = params['n_res']
-        activ = params['activ']
-        pad_type = params['pad_type']
+# class VAEGen(nn.Module):
+#     # VAE architecture
+#     def __init__(self, input_dim, params):
+#         super(VAEGen, self).__init__()
+#         dim = params['dim']
+#         n_downsample = params['n_downsample']
+#         n_res = params['n_res']
+#         activ = params['activ']
+#         pad_type = params['pad_type']
 
-        # content encoder
-        self.enc = ContentEncoder(n_downsample, n_res, input_dim, dim, 'in', activ, pad_type=pad_type)
-        self.dec = Decoder(n_downsample, n_res, self.enc.output_dim, input_dim, res_norm='in', activ=activ, pad_type=pad_type)
+#         # content encoder
+#         self.enc = ContentEncoder(n_downsample, n_res, input_dim, dim, 'in', activ, pad_type=pad_type)
+#         self.dec = Decoder(n_downsample, n_res, self.enc.output_dim, input_dim, res_norm='in', activ=activ, pad_type=pad_type)
 
-    def forward(self, images):
-        # This is a reduced VAE implementation where we assume the outputs are multivariate Gaussian distribution with mean = hiddens and std_dev = all ones.
-        hiddens = self.encode(images)
-        if self.training == True:
-            noise = Variable(torch.randn(hiddens.size()).cuda(hiddens.data.get_device()))
-            images_recon = self.decode(hiddens + noise)
-        else:
-            images_recon = self.decode(hiddens)
-        return images_recon, hiddens
+#     def forward(self, images):
+#         # This is a reduced VAE implementation where we assume the outputs are multivariate Gaussian distribution with mean = hiddens and std_dev = all ones.
+#         hiddens = self.encode(images)
+#         if self.training == True:
+#             noise = Variable(torch.randn(hiddens.size()).cuda(hiddens.data.get_device()))
+#             images_recon = self.decode(hiddens + noise)
+#         else:
+#             images_recon = self.decode(hiddens)
+#         return images_recon, hiddens
 
-    def encode(self, images):
-        hiddens = self.enc(images)
-        noise = Variable(torch.randn(hiddens.size()).cuda(hiddens.data.get_device()))
-        return hiddens, noise
+#     def encode(self, images):
+#         hiddens = self.enc(images)
+#         noise = Variable(torch.randn(hiddens.size()).cuda(hiddens.data.get_device()))
+#         return hiddens, noise
 
-    def decode(self, hiddens):
-        images = self.dec(hiddens)
-        return images
+#     def decode(self, hiddens):
+#         images = self.dec(hiddens)
+#         return images
 
 
 ##################################################################################
@@ -237,6 +260,7 @@ class Decoder(nn.Module):
 
         self.model = []
         # AdaIN residual blocks
+        # TODO: ------------------Core Change--------------
         self.model += [ResBlocks(n_res, dim, res_norm, activ, pad_type=pad_type)]
         # upsampling blocks
         for i in range(n_upsample):

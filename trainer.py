@@ -2,7 +2,7 @@
 Copyright (C) 2017 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
-from networks import AdaINGen, MsImageDis, VAEGen
+from networks import AdaINGen, MsImageDis
 from utils import *
 from torch.autograd import Variable
 import torch
@@ -14,6 +14,7 @@ class MultiStyle_Trainer(nn.Module):
         super(MultiStyle_Trainer, self).__init__()
         lr = hyperparameters['lr']
         # Initiate the networks
+        # TODO: ------------------Core Change--------------
         self.gen_a = AdaINGen(hyperparameters['input_dim_a'], hyperparameters['gen'])  # auto-encoder for domain a
         self.gen_b = AdaINGen(hyperparameters['input_dim_b'], hyperparameters['gen'])  # auto-encoder for domain b
         self.dis_a = MsImageDis(hyperparameters['input_dim_a'], hyperparameters['dis'])  # discriminator for domain a
@@ -22,9 +23,12 @@ class MultiStyle_Trainer(nn.Module):
         self.style_dim = hyperparameters['gen']['style_dim']
 
         # fix the noise used in sampling
+        # TODO: ------------------Core Change--------------
         display_size = int(hyperparameters['display_size'])
-        self.s_a = torch.randn(display_size, self.style_dim, 1, 1).cuda()
-        self.s_b = torch.randn(display_size, self.style_dim, 1, 1).cuda()
+        self.s_t_a = torch.randn(display_size, self.style_dim, 1, 1).cuda()
+        self.s_p_a = torch.randn(display_size, self.style_dim, 1, 1).cuda()
+        self.s_t_b = torch.randn(display_size, self.style_dim, 1, 1).cuda()
+        self.s_p_b = torch.randn(display_size, self.style_dim, 1, 1).cuda()
 
         # Setup the optimizers
         beta1 = hyperparameters['beta1']
@@ -65,6 +69,9 @@ class MultiStyle_Trainer(nn.Module):
     #     return x_ab, x_ba
 
     def gen_update(self, x_a, x_b, hyperparameters):
+        """
+            # TODO: ------------------Core Change--------------
+        """
         self.gen_opt.zero_grad()
         s_a_t = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_a_p = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
@@ -89,10 +96,10 @@ class MultiStyle_Trainer(nn.Module):
         # reconstruction loss
         self.loss_gen_recon_x_a = self.recon_criterion(x_a_recon, x_a)
         self.loss_gen_recon_x_b = self.recon_criterion(x_b_recon, x_b)
-        self.loss_gen_recon_s_a = self.recon_criterion(s_a_t_recon, s_a_t)
-        self.loss_gen_recon_s_a = self.recon_criterion(s_a_p_recon, s_a_p)
-        self.loss_gen_recon_s_b = self.recon_criterion(s_b_t_recon, s_b_t)
-        self.loss_gen_recon_s_b = self.recon_criterion(s_b_p_recon, s_b_p)
+        self.loss_gen_recon_s_a_t = self.recon_criterion(s_a_t_recon, s_a_t)
+        self.loss_gen_recon_s_a_p = self.recon_criterion(s_a_p_recon, s_a_p)
+        self.loss_gen_recon_s_b_t = self.recon_criterion(s_b_t_recon, s_b_t)
+        self.loss_gen_recon_s_b_p = self.recon_criterion(s_b_p_recon, s_b_p)
         self.loss_gen_recon_c_a = self.recon_criterion(c_a_recon, c_a)
         self.loss_gen_recon_c_b = self.recon_criterion(c_b_recon, c_b)
         self.loss_gen_cycrecon_x_a = self.recon_criterion(x_aba, x_a) if hyperparameters['recon_x_cyc_w'] > 0 else 0
@@ -108,10 +115,12 @@ class MultiStyle_Trainer(nn.Module):
         self.loss_gen_total = hyperparameters['gan_w'] * self.loss_gen_adv_a + \
                               hyperparameters['gan_w'] * self.loss_gen_adv_b + \
                               hyperparameters['recon_x_w'] * self.loss_gen_recon_x_a + \
-                              hyperparameters['recon_s_w'] * self.loss_gen_recon_s_a + \
+                              hyperparameters['recon_s_t_w'] * self.loss_gen_recon_s_a_t + \
+                              hyperparameters['recon_s_p_w'] * self.loss_gen_recon_s_a_p + \
                               hyperparameters['recon_c_w'] * self.loss_gen_recon_c_a + \
                               hyperparameters['recon_x_w'] * self.loss_gen_recon_x_b + \
-                              hyperparameters['recon_s_w'] * self.loss_gen_recon_s_b + \
+                              hyperparameters['recon_s_t_w'] * self.loss_gen_recon_s_b_t + \
+                              hyperparameters['recon_s_p_w'] * self.loss_gen_recon_s_b_p + \
                               hyperparameters['recon_c_w'] * self.loss_gen_recon_c_b + \
                               hyperparameters['recon_x_cyc_w'] * self.loss_gen_cycrecon_x_a + \
                               hyperparameters['recon_x_cyc_w'] * self.loss_gen_cycrecon_x_b + \
@@ -129,20 +138,24 @@ class MultiStyle_Trainer(nn.Module):
 
     def sample(self, x_a, x_b):
         self.eval()
-        s_a1 = Variable(self.s_a)
-        s_b1 = Variable(self.s_b)
-        s_a2 = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
-        s_b2 = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
+        s_t_a1 = Variable(self.s_t_a)
+        s_p_a1 = Variable(self.s_p_a)
+        s_t_b1 = Variable(self.s_t_b)
+        s_p_b1 = Variable(self.s_p_b)
+        s_t_a2 = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
+        s_p_a2 = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
+        s_t_b2 = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
+        s_p_b2 = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
         x_a_recon, x_b_recon, x_ba1, x_ba2, x_ab1, x_ab2 = [], [], [], [], [], []
         for i in range(x_a.size(0)):
-            c_a, s_a_fake = self.gen_a.encode(x_a[i].unsqueeze(0))
-            c_b, s_b_fake = self.gen_b.encode(x_b[i].unsqueeze(0))
-            x_a_recon.append(self.gen_a.decode(c_a, s_a_fake))
-            x_b_recon.append(self.gen_b.decode(c_b, s_b_fake))
-            x_ba1.append(self.gen_a.decode(c_b, s_a1[i].unsqueeze(0)))
-            x_ba2.append(self.gen_a.decode(c_b, s_a2[i].unsqueeze(0)))
-            x_ab1.append(self.gen_b.decode(c_a, s_b1[i].unsqueeze(0)))
-            x_ab2.append(self.gen_b.decode(c_a, s_b2[i].unsqueeze(0)))
+            c_a, s_a_t_fake, s_a_p_fake = self.gen_a.encode(x_a[i].unsqueeze(0))
+            c_b, s_b_t_fake, s_b_p_fake = self.gen_b.encode(x_b[i].unsqueeze(0))
+            x_a_recon.append(self.gen_a.decode(c_a, s_a_t_fake, s_a_p_fake))
+            x_b_recon.append(self.gen_b.decode(c_b, s_b_t_fake, s_b_p_fake))
+            x_ba1.append(self.gen_a.decode(c_b, s_t_a1[i].unsqueeze(0), s_p_a1[i].unsqueeze(0)))
+            x_ba2.append(self.gen_a.decode(c_b, s_t_a2[i].unsqueeze(0), s_p_a2[i].unsqueeze(0)))
+            x_ab1.append(self.gen_b.decode(c_a, s_t_b1[i].unsqueeze(0), s_p_b1[i].unsqueeze(0)))
+            x_ab2.append(self.gen_b.decode(c_a, s_t_b2[i].unsqueeze(0), s_p_b2[i].unsqueeze(0)))
         x_a_recon, x_b_recon = torch.cat(x_a_recon), torch.cat(x_b_recon)
         x_ba1, x_ba2 = torch.cat(x_ba1), torch.cat(x_ba2)
         x_ab1, x_ab2 = torch.cat(x_ab1), torch.cat(x_ab2)
@@ -150,15 +163,20 @@ class MultiStyle_Trainer(nn.Module):
         return x_a, x_a_recon, x_ab1, x_ab2, x_b, x_b_recon, x_ba1, x_ba2
 
     def dis_update(self, x_a, x_b, hyperparameters):
+        """
+            # TODO: ------------------Core Change--------------
+        """
         self.dis_opt.zero_grad()
-        s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
-        s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
+        s_t_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
+        s_p_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
+        s_t_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
+        s_p_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
         # encode
-        c_a, _ = self.gen_a.encode(x_a)
-        c_b, _ = self.gen_b.encode(x_b)
+        c_a, _, _ = self.gen_a.encode(x_a)
+        c_b, _, _ = self.gen_b.encode(x_b)
         # decode (cross domain)
-        x_ba = self.gen_a.decode(c_b, s_a)
-        x_ab = self.gen_b.decode(c_a, s_b)
+        x_ba = self.gen_a.decode(c_b, s_t_a, s_p_a)
+        x_ab = self.gen_b.decode(c_a, s_t_b, s_p_b)
         # D loss
         self.loss_dis_a = self.dis_a.calc_dis_loss(x_ba.detach(), x_a)
         self.loss_dis_b = self.dis_b.calc_dis_loss(x_ab.detach(), x_b)
