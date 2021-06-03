@@ -109,7 +109,7 @@ class AdaINGen(nn.Module):
         self.dec = Decoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
 
         # MLP to generate AdaIN parameters
-        # todo : compared with MUNIT, here we should use 2 * style_dim
+        # todo : ----------- compared with MUNIT, here we should use 2 * style_dim -------------------
         self.mlp = MLP(2 * style_dim, self.get_num_adain_params(self.dec), mlp_dim, 3, norm='none', activ=activ)
 
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -129,8 +129,9 @@ class AdaINGen(nn.Module):
 
     def decode(self, content, style_texture, style_physic):
         # decode content and style codes to an image
-        self.logger.info(f'style_texture shape : ', style_texture.shape)
-        self.logger.info(f'style_physic shape : ', style_physic.shape)
+        # todo : Core idea, waits to be verified
+        self.logger.info(f'style_texture shape : {style_texture.shape}')
+        self.logger.info(f'style_physic shape : {style_physic.shape}')
         style = torch.cat([style_texture, style_physic], dim=1)
         adain_params = self.mlp(style)
         self.assign_adain_params(adain_params, self.dec)
