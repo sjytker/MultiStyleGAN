@@ -11,6 +11,10 @@ class TestLogger:
         self.logger.info('testing logger')
 
 if __name__ == '__main__':
-    tl = TestLogger()
-    tl.print_log()
-    print('finish')
+    lst = []
+    lst.append({})
+    lst.append({})
+    d1, d2 = lst
+    d1['aaaa'] = 100
+    d2['bbbb'] = 200
+    print(lst)
