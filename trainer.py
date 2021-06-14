@@ -68,7 +68,7 @@ class MultiStyle_Trainer(nn.Module):
     #     self.train()
     #     return x_ab, x_ba
 
-    def gen_update(self, x_a, x_b, hyperparameters):
+    def  gen_update(self, x_a, x_b, hyperparameters):
         """
             # TODO: ------------------Core Change--------------
         """
@@ -81,15 +81,27 @@ class MultiStyle_Trainer(nn.Module):
         c_a, s_a_t_prime, s_a_p_prime = self.gen_a.encode(x_a)
         c_b, s_b_t_prime, s_b_p_prime = self.gen_b.encode(x_b)
         # decode (within domain)
-        x_a_recon = self.gen_a.decode(c_a, s_a_t_prime, s_a_p_prime)
-        x_b_recon = self.gen_b.decode(c_b, s_b_t_prime, s_b_p_prime)
+        x_a_recon = self.gen_a.decode(
+            c_a, 
+            [s_a_t_prime, s_a_p_prime], 
+            [self.gen_a.texture_dec, self.gen_a.physic_dec]
+        )
+        x_b_recon = self.gen_b.decode(
+            c_b, 
+            [s_b_t_prime, s_b_p_prime],
+            [self.gen_b.texture_dec, self.gen_b.physic_dec]
+        )
         # decode (cross domain)
-        x_ba = self.gen_a.decode(c_b, s_a_t, s_a_p)
+        x_ba = self.gen_a.decode(
+            c_b, 
+            [s_a_t, s_a_p],
+            
+        )
         x_ab = self.gen_b.decode(c_a, s_b_t, s_b_p)
         # encode again
         c_b_recon, s_a_t_recon, s_a_p_recon = self.gen_a.encode(x_ba)
         c_a_recon, s_b_t_recon, s_b_p_recon = self.gen_b.encode(x_ab)
-        # decode again (if needed)
+        # decode again (if needed) 
         x_aba = self.gen_a.decode(c_a_recon, s_a_t_prime, s_a_p_prime) if hyperparameters['recon_x_cyc_w'] > 0 else None
         x_bab = self.gen_b.decode(c_b_recon, s_b_t_prime, s_b_p_prime) if hyperparameters['recon_x_cyc_w'] > 0 else None
 
@@ -220,3 +232,19 @@ class MultiStyle_Trainer(nn.Module):
         torch.save({'a': self.gen_a.state_dict(), 'b': self.gen_b.state_dict()}, gen_name)
         torch.save({'a': self.dis_a.state_dict(), 'b': self.dis_b.state_dict()}, dis_name)
         torch.save({'gen': self.gen_opt.state_dict(), 'dis': self.dis_opt.state_dict()}, opt_name)
+
+    def decode(self, content, style_codes:List, content_decoder, style_decoders:List):
+        # decode content and style codes to an image
+        
+        style_texture, style_physic = style_codes
+        texture_decoder, physic_decoder = style_decoders
+        # self.logger.info('---------------------decoding------------------------')
+        adain_params_t = self.mlp_texture(style_texture)
+        adain_params_p = self.mlp_physic(style_physic)
+        self.assign_decoder_AdaIn(adain_params_t, texture_decoder)
+        self.assign_decoder_AdaIn(adain_params_p, physic_decoder)
+        # We split the MUNIT decoder
+        feature = texture_decoder(content)
+        feature = physic_decoder(feature)
+        images = content_decoder(feature)
+        return images
