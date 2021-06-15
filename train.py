@@ -43,22 +43,22 @@ config['vgg_model_path'] = opts.output_path
 trainer = MultiStyle_Trainer(config)
 
 trainer.cuda()
-# train_loader_a, train_loader_b, test_loader_a, test_loader_b = get_all_data_loaders(config)
-# train_display_images_a = torch.stack([train_loader_a.dataset[i] for i in range(display_size)]).cuda()
-# train_display_images_b = torch.stack([train_loader_b.dataset[i] for i in range(display_size)]).cuda()
-# test_display_images_a = torch.stack([test_loader_a.dataset[i] for i in range(display_size)]).cuda()
-# test_display_images_b = torch.stack([test_loader_b.dataset[i] for i in range(display_size)]).cuda()
+train_loader_a, train_loader_b, test_loader_a, test_loader_b = get_all_data_loaders(config)
+train_display_images_a = torch.stack([train_loader_a.dataset[i] for i in range(display_size)]).cuda()
+train_display_images_b = torch.stack([train_loader_b.dataset[i] for i in range(display_size)]).cuda()
+test_display_images_a = torch.stack([test_loader_a.dataset[i] for i in range(display_size)]).cuda()
+test_display_images_b = torch.stack([test_loader_b.dataset[i] for i in range(display_size)]).cuda()
 
-train_loader_s_cloth, train_loader_d_water, train_loader_s_water = temp_data_loaders(config)
-train_loader_s_cloth = torch.stack([train_loader_s_cloth.dataset[i] for i in range(display_size)]).cuda()
-train_loader_d_water = torch.stack([train_loader_d_water.dataset[i] for i in range(display_size)]).cuda()
-train_loader_s_water = torch.stack([train_loader_s_water.dataset[i] for i in range(display_size)]).cuda()
+# train_loader_s_cloth, train_loader_d_water, train_loader_s_water = temp_data_loaders(config)
+# train_loader_s_cloth = torch.stack([train_loader_s_cloth.dataset[i] for i in range(display_size)]).cuda()
+# train_loader_d_water = torch.stack([train_loader_d_water.dataset[i] for i in range(display_size)]).cuda()
+# train_loader_s_water = torch.stack([train_loader_s_water.dataset[i] for i in range(display_size)]).cuda()
 
 # Setup logger and output folders
 model_name = os.path.splitext(os.path.basename(opts.config))[0]
 train_writer = tensorboardX.SummaryWriter(os.path.join(opts.output_path + "/logs", model_name))
 output_directory = os.path.join(opts.output_path + "/outputs", model_name)
-output_directory += "8len_8nres_recon_x_cyc_w"
+output_directory += "8len_8nres_split_decoder"
 checkpoint_directory, image_directory = prepare_sub_folder(output_directory)
 shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy config file to output folder
 

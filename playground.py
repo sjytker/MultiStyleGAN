@@ -17,4 +17,4 @@ if __name__ == '__main__':
     d1, d2 = lst
     d1['aaaa'] = 100
     d2['bbbb'] = 200
-    print(lst)
+    print(type(lst))

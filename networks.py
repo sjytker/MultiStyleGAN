@@ -113,13 +113,13 @@ class AdaINGen(nn.Module):
         # self.mlp_ori = MLP(2 * style_dim, self.get_num_adain_params(self.dec), mlp_dim, 3, norm='none', activ=activ)   # old version
 
         # TODO: ---------- Now we split the MUNIT whole decoder into [texture, physic, content]
-        self.texture_dec = StyleDecoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
-        self.physic_dec = StyleDecoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
-        self.content_dec = ContentDecoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
+        self.texture_decoder = StyleDecoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
+        self.physic_decoder = StyleDecoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
+        self.content_decoder = ContentDecoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
        
         # MLP to generate AdaIN parameters
-        self.mlp_texture = MLP(style_dim, self.get_num_adain_params(self.texture_dec), mlp_dim, 3, norm='none', activ=activ)
-        self.mlp_physic = MLP(style_dim, self.get_num_adain_params(self.physic_dec), mlp_dim, 3, norm='none', activ=activ)
+        self.mlp_texture = MLP(style_dim, self.get_num_adain_params(self.texture_decoder), mlp_dim, 3, norm='none', activ=activ)
+        self.mlp_physic = MLP(style_dim, self.get_num_adain_params(self.physic_decoder), mlp_dim, 3, norm='none', activ=activ)
 
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -260,6 +260,7 @@ class StyleDecoder(nn.Module):
         # AdaIN residual blocks
         # TODO: ------------------Core Change--------------
         self.model += [ResBlocks(n_res, dim, res_norm, activ, pad_type=pad_type)]
+        self.model = nn.Sequential(*self.model)
 
     def forward(self, x):
         return self.model(x)
@@ -267,7 +268,7 @@ class StyleDecoder(nn.Module):
 
 class ContentDecoder(nn.Module):
     def __init__(self, n_upsample, n_res, dim, output_dim, res_norm='adain', activ='relu', pad_type='zero'):
-        super(StyleDecoder, self).__init__()
+        super(ContentDecoder, self).__init__()
 
         self.model = []
         # AdaIN residual blocks

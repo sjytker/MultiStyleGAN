@@ -47,6 +47,8 @@ class MultiStyle_Trainer(nn.Module):
         self.dis_a.apply(weights_init('gaussian'))
         self.dis_b.apply(weights_init('gaussian'))
 
+        self.logger = logging.getLogger(self.__class__.__name__)
+
         # Load VGG model if needed
         if 'vgg_w' in hyperparameters.keys() and hyperparameters['vgg_w'] > 0:
             self.vgg = load_vgg16(hyperparameters['vgg_model_path'] + '/models')
@@ -56,17 +58,6 @@ class MultiStyle_Trainer(nn.Module):
 
     def recon_criterion(self, input, target):
         return torch.mean(torch.abs(input - target))
-
-    # def forward(self, x_a, x_b):
-    #     self.eval()
-    #     s_a = Variable(self.s_a)
-    #     s_b = Variable(self.s_b)
-    #     c_a, s_a_fake = self.gen_a.encode(x_a)
-    #     c_b, s_b_fake = self.gen_b.encode(x_b)
-    #     x_ba = self.gen_a.decode(c_b, s_a)
-    #     x_ab = self.gen_b.decode(c_a, s_b)
-    #     self.train()
-    #     return x_ab, x_ba
 
     def  gen_update(self, x_a, x_b, hyperparameters):
         """
@@ -81,29 +72,47 @@ class MultiStyle_Trainer(nn.Module):
         c_a, s_a_t_prime, s_a_p_prime = self.gen_a.encode(x_a)
         c_b, s_b_t_prime, s_b_p_prime = self.gen_b.encode(x_b)
         # decode (within domain)
-        x_a_recon = self.gen_a.decode(
-            c_a, 
-            [s_a_t_prime, s_a_p_prime], 
-            [self.gen_a.texture_dec, self.gen_a.physic_dec]
+        x_a_recon = self.decode(
+            c_a,
+            [s_a_t_prime, s_a_p_prime],
+            self.gen_a,
+            [self.gen_a, self.gen_a]
         )
-        x_b_recon = self.gen_b.decode(
+        x_b_recon = self.decode(
             c_b, 
             [s_b_t_prime, s_b_p_prime],
-            [self.gen_b.texture_dec, self.gen_b.physic_dec]
+            self.gen_b,
+            [self.gen_b, self.gen_b]
         )
         # decode (cross domain)
-        x_ba = self.gen_a.decode(
+        x_ba = self.decode(
             c_b, 
             [s_a_t, s_a_p],
-            
+            self.gen_b,
+            [self.gen_a, self.gen_a]
         )
-        x_ab = self.gen_b.decode(c_a, s_b_t, s_b_p)
+        x_ab = self.decode(
+            c_a, 
+            [s_b_t, s_b_p],
+            self.gen_a,
+            [self.gen_b, self.gen_b]
+        )
         # encode again
         c_b_recon, s_a_t_recon, s_a_p_recon = self.gen_a.encode(x_ba)
         c_a_recon, s_b_t_recon, s_b_p_recon = self.gen_b.encode(x_ab)
         # decode again (if needed) 
-        x_aba = self.gen_a.decode(c_a_recon, s_a_t_prime, s_a_p_prime) if hyperparameters['recon_x_cyc_w'] > 0 else None
-        x_bab = self.gen_b.decode(c_b_recon, s_b_t_prime, s_b_p_prime) if hyperparameters['recon_x_cyc_w'] > 0 else None
+        x_aba = self.decode(
+            c_a_recon, 
+            [s_a_t_prime, s_a_p_prime],
+            self.gen_a,
+            [self.gen_a, self.gen_a]
+        ) if hyperparameters['recon_x_cyc_w'] > 0 else None
+        x_bab = self.decode(
+            c_b_recon, 
+            [s_b_t_prime, s_b_p_prime],
+            self.gen_b,
+            [self.gen_b, self.gen_b]
+        ) if hyperparameters['recon_x_cyc_w'] > 0 else None
 
         # reconstruction loss
         self.loss_gen_recon_x_a = self.recon_criterion(x_a_recon, x_a)
@@ -162,12 +171,42 @@ class MultiStyle_Trainer(nn.Module):
         for i in range(x_a.size(0)):
             c_a, s_a_t_fake, s_a_p_fake = self.gen_a.encode(x_a[i].unsqueeze(0))
             c_b, s_b_t_fake, s_b_p_fake = self.gen_b.encode(x_b[i].unsqueeze(0))
-            x_a_recon.append(self.gen_a.decode(c_a, s_a_t_fake, s_a_p_fake))
-            x_b_recon.append(self.gen_b.decode(c_b, s_b_t_fake, s_b_p_fake))
-            x_ba1.append(self.gen_a.decode(c_b, s_t_a1[i].unsqueeze(0), s_p_a1[i].unsqueeze(0)))
-            x_ba2.append(self.gen_a.decode(c_b, s_t_a2[i].unsqueeze(0), s_p_a2[i].unsqueeze(0)))
-            x_ab1.append(self.gen_b.decode(c_a, s_t_b1[i].unsqueeze(0), s_p_b1[i].unsqueeze(0)))
-            x_ab2.append(self.gen_b.decode(c_a, s_t_b2[i].unsqueeze(0), s_p_b2[i].unsqueeze(0)))
+            x_a_recon.append(self.decode(
+                c_a, 
+                [s_a_t_fake, s_a_p_fake],
+                self.gen_a,
+                [self.gen_a, self.gen_a]
+            ))
+            x_b_recon.append(self.decode(
+                c_b, 
+                [s_b_t_fake, s_b_p_fake],
+                self.gen_b,
+                [self.gen_b, self.gen_b]
+            ))
+            x_ba1.append(self.decode(
+                c_b,
+                [s_t_a1[i].unsqueeze(0), s_p_a1[i].unsqueeze(0)],
+                self.gen_b,
+                [self.gen_a, self.gen_a]
+            ))
+            x_ba2.append(self.decode(
+                c_b, 
+                [s_t_a2[i].unsqueeze(0), s_p_a2[i].unsqueeze(0)],
+                self.gen_b,
+                [self.gen_a, self.gen_a]
+            ))
+            x_ab1.append(self.decode(
+                c_a, 
+                [s_t_b1[i].unsqueeze(0), s_p_b1[i].unsqueeze(0)],
+                self.gen_a,
+                [self.gen_b, self.gen_b]
+            ))
+            x_ab2.append(self.decode(
+                c_a, 
+                [s_t_b2[i].unsqueeze(0), s_p_b2[i].unsqueeze(0)],
+                self.gen_a,
+                [self.gen_b, self.gen_b]
+            ))
         x_a_recon, x_b_recon = torch.cat(x_a_recon), torch.cat(x_b_recon)
         x_ba1, x_ba2 = torch.cat(x_ba1), torch.cat(x_ba2)
         x_ab1, x_ab2 = torch.cat(x_ab1), torch.cat(x_ab2)
@@ -187,8 +226,18 @@ class MultiStyle_Trainer(nn.Module):
         c_a, _, _ = self.gen_a.encode(x_a)
         c_b, _, _ = self.gen_b.encode(x_b)
         # decode (cross domain)
-        x_ba = self.gen_a.decode(c_b, s_t_a, s_p_a)
-        x_ab = self.gen_b.decode(c_a, s_t_b, s_p_b)
+        x_ba = self.decode(
+            c_b, 
+            [s_t_a, s_p_a],
+            self.gen_b, 
+            [self.gen_a, self.gen_a]
+        )
+        x_ab = self.decode(
+            c_a,
+            [s_t_b, s_p_b],
+            self.gen_a,
+            [self.gen_b, self.gen_b]
+        )
         # D loss
         self.loss_dis_a = self.dis_a.calc_dis_loss(x_ba.detach(), x_a)
         self.loss_dis_b = self.dis_b.calc_dis_loss(x_ab.detach(), x_b)
@@ -233,18 +282,23 @@ class MultiStyle_Trainer(nn.Module):
         torch.save({'a': self.dis_a.state_dict(), 'b': self.dis_b.state_dict()}, dis_name)
         torch.save({'gen': self.gen_opt.state_dict(), 'dis': self.dis_opt.state_dict()}, opt_name)
 
-    def decode(self, content, style_codes:List, content_decoder, style_decoders:List):
-        # decode content and style codes to an image
+    def decode(self, content, style_codes:list, content_gen, style_gen:list):
+        """ 
+            Decode content and style codes to an image 
+            style_codes && style_gen should in order : [texture, physic]
+            Style decoder should be called before content decoder !
+        """
         
         style_texture, style_physic = style_codes
-        texture_decoder, physic_decoder = style_decoders
+        texture_decoder, physic_decoder = style_gen[0].texture_decoder, style_gen[1].physic_decoder
         # self.logger.info('---------------------decoding------------------------')
-        adain_params_t = self.mlp_texture(style_texture)
-        adain_params_p = self.mlp_physic(style_physic)
-        self.assign_decoder_AdaIn(adain_params_t, texture_decoder)
-        self.assign_decoder_AdaIn(adain_params_p, physic_decoder)
+        adain_params_t = style_gen[0].mlp_texture(style_texture)
+        adain_params_p = style_gen[1].mlp_physic(style_physic)
+        style_gen[0].assign_decoder_AdaIn(adain_params_t, texture_decoder)
+        style_gen[1].assign_decoder_AdaIn(adain_params_p, physic_decoder)
         # We split the MUNIT decoder
+        # self.logger.info(f'content :{content.shape}')
         feature = texture_decoder(content)
         feature = physic_decoder(feature)
-        images = content_decoder(feature)
+        images = content_gen.content_decoder(feature)
         return images
