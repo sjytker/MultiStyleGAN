@@ -2,7 +2,7 @@
 Copyright (C) 2017 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
-from networks import AdaINGen, MsImageDis
+from networks import AdaINGen, MultiStyle_Gen, MsImageDis
 from utils import *
 from torch.autograd import Variable
 import torch
@@ -15,9 +15,10 @@ class MultiStyle_Trainer(nn.Module):
         lr = hyperparameters['lr']
         # Initiate the networks
         # TODO: ------------------Core Change--------------
-        self.gen_sc = AdaINGen(hyperparameters['input_dim_sc'], hyperparameters['gen'])  # auto-encoder for domain sc
-        self.gen_dw = AdaINGen(hyperparameters['input_dim_dw'], hyperparameters['gen'])  # auto-encoder for domain dw
-        self.gen_sw = AdaINGen(hyperparameters['input_dim_sw'], hyperparameters['gen'])  # auto-encoder for domain sw
+        # self.gen_sc = AdaINGen(hyperparameters['input_dim_sc'], hyperparameters['gen'])  # auto-encoder for domain sc
+        # self.gen_dw = AdaINGen(hyperparameters['input_dim_dw'], hyperparameters['gen'])  # auto-encoder for domain dw
+        # self.gen_sw = AdaINGen(hyperparameters['input_dim_sw'], hyperparameters['gen'])  # auto-encoder for domain sw
+        self.gen = MultiStyle_Gen(hyperparameters['input_dim_sc'], hyperparameters['gen'])
         self.dis_sc = MsImageDis(hyperparameters['input_dim_sc'], hyperparameters['dis'])  # discriminator for domain sc
         self.dis_dw = MsImageDis(hyperparameters['input_dim_dw'], hyperparameters['dis'])  # discriminator for domain dw
         self.dis_sw = MsImageDis(hyperparameters['input_dim_sw'], hyperparameters['dis'])  # discriminator for domain sw
@@ -80,68 +81,122 @@ class MultiStyle_Trainer(nn.Module):
         c_dw, s_dw_t_prime, s_dw_p_prime = self.gen_dw.encode(x_dw)
         c_sw, s_sw_t_prime, s_sw_p_prime = self.gen_sw.encode(x_sw)
 
-        # ------------------------decode (within domain)-----------------------
-        x_sc_recon = self.decode(
-            c_sc,
-            [s_sc_t_prime, s_sc_p_prime],
-            self.gen_sc,
-            [self.gen_sc, self.gen_sc]
-        )
-
-        x_dw_recon = self.decode(
-            c_dw, 
+        # ------------------------decode (dw)-----------------------
+        # recon
+        x_dw1 = self.decode(
+            c_dw,
             [s_dw_t_prime, s_dw_p_prime],
             self.gen_dw,
             [self.gen_dw, self.gen_dw]
         )
 
-        # -------------------------decode (cross domain)-------------------------
-        x_dw2sc = self.decode(
+        x_dw2 = self.decode(
+            c_dw, 
+            [s_sw_t, s_dw_p_prime],
+            self.gen_dw, 
+            [self.gen_sw, self.gen_dw]
+        )
+
+        # -------------------------decode (sw)-------------------------
+        # recon
+        x_sw1 = self.decode(
+            c_sw, 
+            [s_sw_t_prime, s_sw_p_prime],
+            self.gen_sw,
+            [self.gen_sw, self.gen_sw]
+        )
+
+        x_sw2 = self.decode(
+            c_sw, 
+            [s_sw_t_prime, s_sc_p],
+            self.gen_sw,
+            [self.gen_sw, self.gen_sc]
+        )
+
+        x_sw3 = self.decode(
+            c_sw, 
+            [s_dw_t, s_sw_p_prime],
+            self.gen_sw,
+            [self.gen_dw, self.gen_sw]
+        )       
+
+        x_sw4 = self.decode(
+            c_sw, 
+            [s_dw_t, s_sc_p],
+            self.gen_sw,
+            [self.gen_dw, self.gen_sc]
+        )
+
+        # -------------------------decode (sc)-------------------------
+        # recon
+        x_sc1 = self.decode(
+            c_sc, 
+            [s_sc_t_prime, s_sc_p_prime],
+            self.gen_sc,
+            [self.gen_sc, self.gen_sc]
+        )
+
+        x_sc2 = self.decode(
+            c_sc, 
+            [s_sc_t_prime, s_sw_p],
+            self.gen_sc,
+            [self.gen_sc, self.gen_sw]
+        )       
+
+        x_sc3 = self.decode(
             c_dw, 
             [s_sc_t, s_sc_p],
             self.gen_dw,
             [self.gen_sc, self.gen_sc]
         )
-        x_sc2dw = self.decode(
-            c_sc, 
-            [s_dw_t, s_dw_p],
-            self.gen_sc,
-            [self.gen_dw, self.gen_dw]
+
+        x_sc4 = self.decode(
+            c_dw, 
+            [s_sc_t, s_sw_p],
+            self.gen_dw,
+            [self.gen_sc, self.gen_sw]
         )
 
+        x_sc5 = self.decode(
+            c_sw, 
+            [s_sc_t, s_sc_p],
+            self.gen_sw,
+            [self.gen_sc, self.gen_sc]
+        )
+
+        x_sc6 = self.decode(
+            c_sw, 
+            [s_sc_t, s_sw_p_prime],
+            self.gen_sw,
+            [self.gen_sc, self.gen_sw]
+        )
         # --------------------------encode again------------------------------------
-        c_dw_recon, s_sc_t_recon, s_sc_p_recon = self.gen_sc.encode(x_dw2sc)
-        c_sc_recon, s_dw_t_recon, s_dw_p_recon = self.gen_dw.encode(x_sc2dw)
+        # c_dw_recon, s_sc_t_recon, s_sc_p_recon = self.gen_sc.encode(x_dw2sc)
+        # c_sc_recon, s_dw_t_recon, s_dw_p_recon = self.gen_dw.encode(x_sc2dw)
+        c_sc_recon, c_dw_recon, c_sw_recon = [], [], []
+        s_sc_t_recon, s_sc_t_prime_recon, s_sc_p_recon, s_sc_p_prime_recon = [], [], [], []
+        s_dw_t_recon, s_dw_t_prime_recon, s_dw_p_recon, s_dw_p_prime_recon = [], [], [], []
+        s_sw_t_recon, s_sw_t_prime_recon, s_sw_p_recon, s_sw_p_prime_recon = [], [], [], []
+
+        c, s_t, s_p = self.
 
         # --------------------------decode again (if needed)------------------------
-        # x_aba = self.decode(
-        #     c_a_recon, 
-        #     [s_a_t_prime, s_a_p_prime],
-        #     self.gen_sc,
-        #     [self.gen_sc, self.gen_sc]
-        # ) if hyperparameters['recon_x_cyc_w'] > 0 else None
-        # x_bab = self.decode(
-        #     c_b_recon, 
-        #     [s_b_t_prime, s_b_p_prime],
-        #     self.gen_dw,
-        #     [self.gen_dw, self.gen_dw]
-        # ) if hyperparameters['recon_x_cyc_w'] > 0 else None
 
         # --------------------reconstruction loss----------------------------
-        self.loss_gen_recon_x_sc = self.recon_criterion(x_sc_recon, x_sc)
-        self.loss_gen_recon_x_dw = self.recon_criterion(x_dw_recon, x_dw)
-        self.loss_gen_recon_s_sc_t = self.recon_criterion(s_sc_t_recon, s_sc_t)
-        self.loss_gen_recon_s_sc_p = self.recon_criterion(s_sc_p_recon, s_sc_p)
-        self.loss_gen_recon_s_dw_t = self.recon_criterion(s_dw_t_recon, s_dw_t)
-        self.loss_gen_recon_s_dw_p = self.recon_criterion(s_dw_p_recon, s_dw_p)
-        self.loss_gen_recon_c_sc = self.recon_criterion(c_sc_recon, c_sc)
-        self.loss_gen_recon_c_dw = self.recon_criterion(c_dw_recon, c_dw)
+        # self.loss_gen_recon_x_sc = self.recon_criterion(x_sc_recon, x_sc)
+        # self.loss_gen_recon_x_dw = self.recon_criterion(x_dw_recon, x_dw)
+        # self.loss_gen_recon_s_sc_t = self.recon_criterion(s_sc_t_recon, s_sc_t)
+        # self.loss_gen_recon_s_sc_p = self.recon_criterion(s_sc_p_recon, s_sc_p)
+        # self.loss_gen_recon_s_dw_t = self.recon_criterion(s_dw_t_recon, s_dw_t)
+        # self.loss_gen_recon_s_dw_p = self.recon_criterion(s_dw_p_recon, s_dw_p)
+        # self.loss_gen_recon_c_sc = self.recon_criterion(c_sc_recon, c_sc)
+        # self.loss_gen_recon_c_dw = self.recon_criterion(c_dw_recon, c_dw)
         # self.loss_gen_cycrecon_x_a = self.recon_criterion(x_aba, x_a) if hyperparameters['recon_x_cyc_w'] > 0 else 0
         # self.loss_gen_cycrecon_x_b = self.recon_criterion(x_bab, x_b) if hyperparameters['recon_x_cyc_w'] > 0 else 0
 
         # ---------------------------GAN loss------------------------------------
-        self.loss_gen_adv_sc = self.dis_sc.calc_gen_loss(x_dw2sc)
-        self.loss_gen_adv_dw = self.dis_dw.calc_gen_loss(x_sc2dw)
+        # self.loss_gen_adv_sc = self.dis_sc.calc_gen_loss(x_dw2sc)
+        # self.loss_gen_adv_dw = self.dis_dw.calc_gen_loss(x_sc2dw)
 
         # --------------------------domain-invariant perceptual loss------------------------
         # self.loss_gen_vgg_a = self.compute_vgg_loss(self.vgg, x_ba, x_b) if hyperparameters['vgg_w'] > 0 else 0

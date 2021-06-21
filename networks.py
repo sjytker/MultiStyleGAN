@@ -89,6 +89,26 @@ class MsImageDis(nn.Module):
 # Generator
 ##################################################################################
 
+class MultiStyle_Gen(nn.Module):
+    def __init__(self, input_dim, params):
+        super(AdaINGen, self).__init__()
+        dim = params['dim']
+        style_dim = params['style_dim']
+        n_downsample = params['n_downsample']
+        n_res = params['n_res']
+        activ = params['activ']
+        pad_type = params['pad_type']
+        mlp_dim = params['mlp_dim']
+
+        # content encoder
+        # could encoder two content types
+        self.enc_content = ContentEncoder(n_downsample, n_res, input_dim, dim, 'in', activ, pad_type=pad_type)       
+
+        # style encoder
+        self.enc_style_texture = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
+        self.enc_style_physic = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
+
+
 class AdaINGen(nn.Module):
     # AdaIN auto-encoder architecture
     def __init__(self, input_dim, params):
