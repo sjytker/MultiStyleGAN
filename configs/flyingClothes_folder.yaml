@@ -24,8 +24,12 @@ recon_x_w: 10                 # weight of image reconstruction loss
 recon_s_t_w: 1                  # weight of texture style reconstruction loss
 recon_s_p_w: 1                  # weight of physical style reconstruction loss
 recon_c_w: 1                  # weight of content reconstruction loss
+non_random_w: 1               # non-random style
+random_w: 1                   # random style
+same_style_w: 1
 recon_x_cyc_w: 0              # weight of explicit style augmented cycle consistency loss
 vgg_w: 0                      # weight of domain-invariant perceptual loss
+style_pack: 'list'            # list or random
 
 # model options
 gen:
@@ -34,7 +38,7 @@ gen:
   style_dim: 8                # length of style code
   activ: relu                 # activation function [relu/lrelu/prelu/selu/tanh]
   n_downsample: 2             # number of downsampling layers in content encoder
-  n_res: 8                    # number of residual blocks in content encoder/decoder
+  n_res: 4                    # number of residual blocks in content encoder/decoder
   pad_type: reflect           # padding type [zero/reflect]
 dis:
   dim: 64                     # number of filters in the bottommost layer

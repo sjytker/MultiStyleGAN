@@ -2,6 +2,7 @@
 Copyright (C) 2018 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
+from logging import raiseExceptions
 import torch.utils.data as data
 import os.path
 
@@ -114,6 +115,23 @@ class ImageFolder(data.Dataset):
         self.transform = transform
         self.return_paths = return_paths
         self.loader = loader
+        last = root.split('/')[-1]
+        p, t = last.split('_')
+        info = {}
+        if p == 's':
+            info['p'] = 'static'
+        elif p == 'd':
+            info['p'] = 'dynamic'
+        else:
+            raise NotImplementedError
+            
+        if t == 'cloth':
+            info['t'] = 'cloth'
+        elif t == 'water':
+            info['t'] = 'water'
+        else:
+            raise NotImplementedError
+        self.info = info
 
     def __getitem__(self, index):
         path = self.imgs[index]
