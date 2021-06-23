@@ -119,8 +119,9 @@ def __write_images(image_outputs, display_image_num, file_name):
 
 def write_2images(image_outputs, display_image_num, image_directory, postfix):
     n = len(image_outputs)
-    __write_images(image_outputs[0:n//2], display_image_num, '%s/gen_a2b_%s.jpg' % (image_directory, postfix))
-    __write_images(image_outputs[n//2:n], display_image_num, '%s/gen_b2a_%s.jpg' % (image_directory, postfix))
+    __write_images(image_outputs[0 : n//3], display_image_num, '%s/gen_sc_%s.jpg' % (image_directory, postfix))
+    __write_images(image_outputs[n//3 : 2*n//3], display_image_num, '%s/gen_dw_%s.jpg' % (image_directory, postfix))
+    __write_images(image_outputs[2*n//3 : n], display_image_num, '%s/gen_sw_%s.jpg' % (image_directory, postfix))
 
 
 def prepare_sub_folder(output_directory):
@@ -215,6 +216,7 @@ def get_model_list(dirname, key):
     if gen_models is None:
         return None
     gen_models.sort()
+    print('gen_models : ', gen_models)
     last_model_name = gen_models[-1]
     return last_model_name
 

@@ -61,7 +61,7 @@ class MultiStyle_Trainer(nn.Module):
             for param in self.vgg.parameters():
                 param.requires_grad = False
 
-    def recon_criterion(self, input, target):
+    def image_recon_criterion(self, input, target):
         if not isinstance(input, list):
             input = [input]
         res = 0.
@@ -69,18 +69,26 @@ class MultiStyle_Trainer(nn.Module):
             res += torch.mean(torch.abs(i - target))
         return res
 
+    # def style_recon_criterion(self, input, target):
+    #     if not isinstance(input, list):
+    #         input = [input]
+    #     res = 0.
+    #     for i in input:
+    #         res += torch.mean(torch.abs(i - target))
+    #     return res
+
     def gen_update(self, x_sc, x_dw, x_sw, opt):
         """
             Update generator.
         """
         self.gen_opt.zero_grad()
 
-        s_sc_t = Variable(torch.randn(x_sc.size(0), self.style_dim, 1, 1).cuda())
-        s_sc_p = Variable(torch.randn(x_sc.size(0), self.style_dim, 1, 1).cuda())
-        s_dw_t = Variable(torch.randn(x_dw.size(0), self.style_dim, 1, 1).cuda())
-        s_dw_p = Variable(torch.randn(x_dw.size(0), self.style_dim, 1, 1).cuda())
-        s_sw_t = Variable(torch.randn(x_sw.size(0), self.style_dim, 1, 1).cuda())
-        s_sw_p = Variable(torch.randn(x_sw.size(0), self.style_dim, 1, 1).cuda())
+        s_t_cloth_nosie = Variable(torch.randn(x_sc.size(0), self.style_dim, 1, 1).cuda())
+        # s_sc_p = Variable(torch.randn(x_sc.size(0), self.style_dim, 1, 1).cuda())
+        # s_dw_t = Variable(torch.randn(x_dw.size(0), self.style_dim, 1, 1).cuda())
+        s_p_dy_noise = Variable(torch.randn(x_dw.size(0), self.style_dim, 1, 1).cuda())
+        # s_sw_t = Variable(torch.randn(x_sw.size(0), self.style_dim, 1, 1).cuda())
+        # s_sw_p = Variable(torch.randn(x_sw.size(0), self.style_dim, 1, 1).cuda())
 
         # ------------------------encode-------------------------------------
         sc_info = {'p': 'static', 't': 'cloth'}
@@ -115,7 +123,7 @@ class MultiStyle_Trainer(nn.Module):
         for t in t_w_prime:
             cur_dw = self.gen.decode(
                 c_sw,
-                [t, s_dw_p],
+                [t, s_p_dy_noise],
                 info
             )
             dw_cross.append(cur_dw)
@@ -149,22 +157,47 @@ class MultiStyle_Trainer(nn.Module):
         sc_recon = []
         info = {'p': 'static', 't': 'cloth'}
         for p in p_sa_prime:
-            cur_sw = self.gen.decode(
+            cur_sc = self.gen.decode(
                 c_sc,
                 [s_sc_t_prime, p],
                 info
             )
-            sc_recon.append(cur_sw)
+            sc_recon.append(cur_sc)
 
         # cross domain
         sc_cross = []
         for p in p_sa_prime:
-            cur_sw = self.gen.decode(
+            cur_sc = self.gen.decode(
                 c_dw, 
-                [s_sc_t, p],
+                [s_t_cloth_nosie, p],
                 info
             )
-            sc_cross.append(cur_sw)
+            sc_cross.append(cur_sc)
+
+        # -------------------------decode (dc)-------------------------
+        # only cross domain
+        dc_cross = []
+        info = {'p': 'dynamic', 't': 'cloth'}
+        cur_dc = self.gen.decode(
+            c_sc, 
+            [s_t_cloth_nosie, s_p_dy_noise],
+            info
+        )
+        dc_cross.append(cur_dc)
+
+        cur_dc = self.gen.decode(
+            c_dw, 
+            [s_t_cloth_nosie, s_p_dy_noise],
+            info
+        )
+        dc_cross.append(cur_dc)
+        
+        cur_dc = self.gen.decode(
+            c_sw, 
+            [s_t_cloth_nosie, s_p_dy_noise],
+            info
+        )
+        dc_cross.append(cur_dc)
 
         # --------------------------style recon && loss------------------------------------
         # We use avg of these non-random style to supervise style recon.
@@ -177,6 +210,13 @@ class MultiStyle_Trainer(nn.Module):
         p_dynamic_recon, p_static_recon = [], []
 
         # First, non-random content && style (also within domain)
+        for sc in sc_recon:
+            info = {'p': 'static', 't': 'water'}
+            c, st, sp = self.gen.encode(sc, info) 
+            c_cloth_recon.append(c)
+            t_cloth_recon.append(st)
+            p_static_recon.append(sp)
+
         for dw in dw_recon:
             info = {'p': 'dynamic', 't': 'water'}
             c, st, sp = self.gen.encode(dw, info)  # TODO: maybe not pack like this
@@ -191,21 +231,14 @@ class MultiStyle_Trainer(nn.Module):
             t_water_recon.append(st)
             p_static_recon.append(sp)
 
-        for sc in sc_recon:
-            info = {'p': 'static', 't': 'water'}
-            c, st, sp = self.gen.encode(sc, info) 
-            c_cloth_recon.append(c)
-            t_cloth_recon.append(st)
-            p_static_recon.append(sp)
-
-        self.loss_gen_recon_c_cloth = self.recon_criterion(c_cloth_recon, c_sc)
+        self.loss_gen_recon_c_sc = self.recon_criterion(c_cloth_recon, c_sc)
         self.loss_gen_recon_c_dw = self.recon_criterion(c_dw_recon, c_dw)
         self.loss_gen_recon_c_sw = self.recon_criterion(c_sw_recon, c_sw)
 
         self.loss_gen_recon_t_cloth = self.recon_criterion(t_cloth_recon, s_sc_t_prime)
         self.loss_gen_recon_t_water = self.recon_criterion(t_cloth_recon, tw_avg)
 
-        self.loss_gen_recon_p_dynamic = self.recon_criterion(p_dynamic_recon, s_dw_p)
+        self.loss_gen_recon_p_dynamic = self.recon_criterion(p_dynamic_recon, s_p_dy_noise)
         self.loss_gen_recon_p_static = self.recon_criterion(p_static_recon, sa_avg)
 
         # Second, random style (also cross domain)
@@ -214,7 +247,7 @@ class MultiStyle_Trainer(nn.Module):
             c, st, sp = self.gen.encode(dw, info)
             self.loss_gen_recon_c_sw += self.recon_criterion(c, c_sw)
             self.loss_gen_recon_t_water += self.recon_criterion(st, tw_avg)
-            self.loss_gen_recon_p_dynamic_noise = self.recon_criterion(sp, s_dw_p)
+            self.loss_gen_recon_p_dynamic_noise = self.recon_criterion(sp, s_p_dy_noise)
         
         for sw in sw_cross:
             info = {'p': 'static', 't': 'water'}
@@ -227,21 +260,46 @@ class MultiStyle_Trainer(nn.Module):
             info = {'p': 'static', 't': 'cloth'}
             c, st, sp = self.gen.encode(sc, info)  # dw -> sc
             self.loss_gen_recon_c_dw += self.recon_criterion(c, c_dw)
-            self.loss_gen_recon_t_cloth += self.recon_criterion(st, s_sc_t)
+            self.loss_gen_recon_t_cloth += self.recon_criterion(st, s_t_cloth_nosie)
             self.loss_gen_recon_p_static += self.recon_criterion(st, sa_avg)
 
         for sc in sc_cross[len(sc_cross) // 2:]:
             info = {'p': 'static', 't': 'cloth'}
             c, st, sp = self.gen.encode(sc, info)  # sw -> sc
             self.loss_gen_recon_c_sw += self.recon_criterion(c, c_sw)
-            self.loss_gen_recon_t_cloth_noise = self.recon_criterion(st, s_sc_t)
+            self.loss_gen_recon_t_cloth_noise = self.recon_criterion(st, s_t_cloth_nosie)
             self.loss_gen_recon_p_static += self.recon_criterion(st, sa_avg)
+
+#------------------TODO: go to master branch to verify MUNIT's wrong L1 supervision on style noise.-----------------------
+        # recon dc's content && style.  
+        # Order : [sc, dw, sw]
+        info = {'p': 'dynamic', 't': 'cloth'}
+        # c_sc in dc_cross
+        c, st, sp = self.gen.encode(dc_cross[0], info) 
+        self.loss_gen_recon_c_sc += self.recon_criterion(c, c_sc)
+        self.loss_gen_recon_t_cloth += self.recon_criterion(t_cloth_recon, s_sc_t_prime)
+        self.loss_gen_recon_p_dynamic_noise += self.recon_criterion(sp, s_p_dy_noise)
+
+        # c_dw in dc_cross
+        c, st, sp = self.gen.encode(dc_cross[1], info) 
+        self.loss_gen_recon_c_dw += self.recon_criterion(c, c_dw)
+        self.loss_gen_recon_t_cloth += self.recon_criterion(t_cloth_recon, s_sc_t_prime)
+        self.loss_gen_recon_p_dynamic_noise += self.recon_criterion(sp, s_p_dy_noise)
+
+        # c_sw in dc_cross
+        c, st, sp = self.gen.encode(dc_cross[2], info) 
+        self.loss_gen_recon_c_sw += self.recon_criterion(c, c_sw)
+        self.loss_gen_recon_t_cloth += self.recon_criterion(t_cloth_recon, s_sc_t_prime)
+        self.loss_gen_recon_p_dynamic_noise += self.recon_criterion(sp, s_p_dy_noise)
+
+#------------------TODO: go to master branch to verify MUNIT's wrong L1 supervision on style noise.-----------------------
+
 
         # ------------------------loss----------------------------
         # image recon loss
-        self.loss_gen_recon_x_sc = self.recon_criterion(sc_recon, x_sc)
-        self.loss_gen_recon_x_dw = self.recon_criterion(dw_recon, x_dw)
-        self.loss_gen_recon_x_sw = self.recon_criterion(sw_recon, x_sw)
+        self.loss_gen_recon_x_sc = self.image_recon_criterion(sc_recon, x_sc)
+        self.loss_gen_recon_x_dw = self.image_recon_criterion(dw_recon, x_dw)
+        self.loss_gen_recon_x_sw = self.image_recon_criterion(sw_recon, x_sw)
 
         # non-random style should be same
         self.t_water_loss = self.recon_criterion(s_dw_t_prime, s_sw_t_prime)
@@ -262,7 +320,7 @@ class MultiStyle_Trainer(nn.Module):
             opt['gan_w'] * (self.loss_gen_adv_sc + self.loss_gen_adv_dw + self.loss_gen_adv_sw) + \
             opt['recon_x_w'] * (self.loss_gen_recon_x_sc + self.loss_gen_recon_x_dw + self.loss_gen_recon_x_sw) + \
             opt['same_style_w'] * (self.t_water_loss + self.p_sa_loss) + \
-            opt['non_random_w'] * (self.loss_gen_recon_c_cloth + self.loss_gen_recon_c_dw + self.loss_gen_recon_c_sw) + \
+            opt['non_random_w'] * (self.loss_gen_recon_c_sc + self.loss_gen_recon_c_dw + self.loss_gen_recon_c_sw) + \
             opt['non_random_w'] * (self.loss_gen_recon_t_cloth + self.loss_gen_recon_t_water) + \
             opt['non_random_w'] * (self.loss_gen_recon_p_dynamic + self.loss_gen_recon_p_static) + \
             opt['random_w'] * (self.loss_gen_recon_p_dynamic_noise + self.loss_gen_recon_t_cloth_noise)
@@ -293,9 +351,16 @@ class MultiStyle_Trainer(nn.Module):
         sc_recon, dw_recon, sw_recon = [], [], []
         sc_cross, dw_cross, sw_cross = [], [], []
         for i in range(x_sc.size(0)):
-            c_sc, s_sc_t_fake, s_sc_p_fake = self.gen.encode(x_sc[i].unsqueeze(0))
-            c_dw, s_dw_t_fake, s_dw_p_fake = self.gen.encode(x_dw[i].unsqueeze(0))
-            c_sw, s_sw_t_fake, s_sw_p_fake = self.gen.encode(x_sw[i].unsqueeze(0))
+            c_sc, s_sc_t_fake, s_sc_p_fake = self.gen.encode(
+                x_sc[i].unsqueeze(0), 
+                {'t': 'cloth', 'p': 'static'})
+            c_dw, s_dw_t_fake, s_dw_p_fake = self.gen.encode(
+                x_dw[i].unsqueeze(0),
+                {'t': 'water', 'p': 'dynamic'})
+            c_sw, s_sw_t_fake, s_sw_p_fake = self.gen.encode(
+                x_sw[i].unsqueeze(0),
+                {'t': 'water', 'p': 'static'})
+
             sc_recon.append(self.gen.decode(
                 c_sc, 
                 [s_sc_t_fake, s_sc_p_fake],
@@ -312,27 +377,27 @@ class MultiStyle_Trainer(nn.Module):
                 {'t': 'water', 'p': 'static'}
             ))
 
+            # self.logger.info(f's_sc_t[i] : {s_sc_t[i].shape}')
+            # self.logger.info(f's_sc_p[i] : {s_sc_p[i].shape}')
             sc_cross.append(self.gen.decode(
                 c_dw,
-                [s_sc_t[i].unsqueeze(0), s_sc_p[i].unsqueeze(0)],
+                [s_sc_t[i].unsqueeze(0), s_sc_p_fake.unsqueeze(0)],
                 {'t': 'cloth', 'p': 'static'}
             ))
-            dw_cross.append(self.decode(
+            dw_cross.append(self.gen.decode(
                 c_sw,
-                [s_dw_t_fake.unsqueeze(0), s_dw_p.unsqueeze(0)],
-                {'t': 'cloth', 'p': 'static'}
+                [s_dw_t_fake.unsqueeze(0), s_dw_p[i].unsqueeze(0)],
+                {'t': 'water', 'p': 'dynamic'}
             ))
-            sw_cross.append(self.decode(
+            sw_cross.append(self.gen.decode(
                 c_dw,
-                [s_dw_t_fake.unsqueeze(0), s_sw_p_fake.unsqueeze(0)],
-                {'t': 'cloth', 'p': 'static'}
+                [s_sw_t_fake.unsqueeze(0), s_sw_p_fake.unsqueeze(0)],
+                {'t': 'water', 'p': 'static'}
             ))
 
 
         sc_recon, dw_recon, sw_recon = torch.cat(sc_recon), torch.cat(dw_recon), torch.cat(sw_recon)
-        sc_cross, dw_cross, sw_cross = torch.cat(sc_recon), torch.cat(dw_recon), torch.cat(sw_recon)
-        # x_ba1, x_ba2 = torch.cat(x_ba1), torch.cat(x_ba2)
-        # x_ab1, x_ab2 = torch.cat(x_ab1), torch.cat(x_ab2)
+        sc_cross, dw_cross, sw_cross = torch.cat(sc_cross), torch.cat(dw_cross), torch.cat(sw_cross)
         self.train()
         return  x_sc, sc_recon, sc_cross, \
                 x_dw, dw_recon, dw_cross, \

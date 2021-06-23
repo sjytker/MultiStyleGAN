@@ -63,6 +63,7 @@ checkpoint_directory, image_directory = prepare_sub_folder(output_directory)
 shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy config file to output folder
 
 # Start training
+print('checkpoint_directory : ', checkpoint_directory)
 iterations = trainer.resume(checkpoint_directory, opt=config) if opts.resume else 0
 print('starting from iter : ', iterations)
 len_sc = len(train_loader_s_cloth)
@@ -90,19 +91,18 @@ while True:
         print("Iteration: %08d/%08d" % (iterations + 1, max_iter))
         write_loss(iterations, trainer, train_writer)
 
-    Write images
+    # Write images
     if (iterations + 1) % config['image_save_iter'] == 0:
         with torch.no_grad():
          #   test_image_outputs = trainer.sample(test_display_images_a, test_display_images_b)
             train_image_outputs = trainer.sample_multi(train_display_s_cloth, train_display_d_water, train_display_s_water)
-       # write_2images(test_image_outputs, display_size, image_directory, 'test_%08d' % (iterations + 1))
         write_2images(train_image_outputs, display_size, image_directory, 'train_%08d' % (iterations + 1))
-        # HTML
-        write_html(output_directory + "/index.html", iterations + 1, config['image_save_iter'], 'images')
+
 
     if (iterations + 1) % config['image_display_iter'] == 0:
         with torch.no_grad():
-            image_outputs = trainer.sample(train_display_s_cloth, train_display_d_water, train_display_s_water)
+            image_outputs = trainer.sample_multi(train_display_s_cloth, train_display_d_water, train_display_s_water)
+            print('image_outputs : ', len(image_outputs), image_outputs[0].shape)
         write_2images(image_outputs, display_size, image_directory, 'train_current')
 
     # Save network weights
