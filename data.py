@@ -125,7 +125,7 @@ class ImageFolder(data.Dataset):
         else:
             raise NotImplementedError
             
-        if t == 'cloth':
+        if t == 'flags':  # flags for now
             info['t'] = 'cloth'
         elif t == 'water':
             info['t'] = 'water'

@@ -76,7 +76,7 @@ def temp_data_loaders(conf):
     height = conf['crop_image_height']
     width = conf['crop_image_width']
 
-    train_loader_s_cloth = get_data_loader_folder(os.path.join(conf['data_root'], 'train_A', 's_cloth'), batch_size, True,
+    train_loader_s_cloth = get_data_loader_folder(os.path.join(conf['data_root'], 'train_A', 's_flags'), batch_size, True,
                                           new_size_a, height, width, num_workers, True)
     train_loader_d_water = get_data_loader_folder(os.path.join(conf['data_root'], 'train_B', 'd_water'), batch_size, True,
                                           new_size_b, height, width, num_workers, True)
@@ -90,7 +90,7 @@ def get_data_loader_folder(input_folder, batch_size, train, new_size=None,
                       transforms.Normalize((0.5, 0.5, 0.5),
                                            (0.5, 0.5, 0.5))]
     # transform_list = [transforms.RandomCrop((height, width))] + transform_list if crop else transform_list
-    # transform_list = [transforms.Resize(new_size)] + transform_list if new_size is not None else transform_list
+    transform_list = [transforms.Resize([new_size, new_size])] + transform_list if new_size is not None else transform_list
     transform_list = [transforms.RandomHorizontalFlip()] + transform_list if train else transform_list
     transform = transforms.Compose(transform_list)
     dataset = ImageFolder(input_folder, transform=transform)

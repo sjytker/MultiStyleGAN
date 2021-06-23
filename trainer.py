@@ -66,7 +66,7 @@ class MultiStyle_Trainer(nn.Module):
             input = [input]
         res = 0.
         for i in input:
-            res += torch.mean(torch.abs(input - target))
+            res += torch.mean(torch.abs(i - target))
         return res
 
     def gen_update(self, x_sc, x_dw, x_sw, opt):
@@ -83,9 +83,12 @@ class MultiStyle_Trainer(nn.Module):
         s_sw_p = Variable(torch.randn(x_sw.size(0), self.style_dim, 1, 1).cuda())
 
         # ------------------------encode-------------------------------------
-        c_sc, s_sc_t_prime, s_sc_p_prime = self.gen.encode(x_sc)
-        c_dw, s_dw_t_prime, s_dw_p_prime = self.gen.encode(x_dw)
-        c_sw, s_sw_t_prime, s_sw_p_prime = self.gen.encode(x_sw)
+        sc_info = {'p': 'static', 't': 'cloth'}
+        dw_info = {'p': 'dynamic', 't': 'water'}
+        sw_info = {'p': 'static', 't': 'water'}
+        c_sc, s_sc_t_prime, s_sc_p_prime = self.gen.encode(x_sc, sc_info)
+        c_dw, s_dw_t_prime, s_dw_p_prime = self.gen.encode(x_dw, dw_info)
+        c_sw, s_sw_t_prime, s_sw_p_prime = self.gen.encode(x_sw, sw_info)
 
         if opt['style_pack'] == 'list':
             t_w_prime = [s_dw_t_prime, s_sw_t_prime]
@@ -231,7 +234,7 @@ class MultiStyle_Trainer(nn.Module):
             info = {'p': 'static', 't': 'cloth'}
             c, st, sp = self.gen.encode(sc, info)  # sw -> sc
             self.loss_gen_recon_c_sw += self.recon_criterion(c, c_sw)
-            self.loss_gen_recon_t_cloth_noise += self.recon_criterion(st, s_sc_t)
+            self.loss_gen_recon_t_cloth_noise = self.recon_criterion(st, s_sc_t)
             self.loss_gen_recon_p_static += self.recon_criterion(st, sa_avg)
 
         # ------------------------loss----------------------------
@@ -274,61 +277,66 @@ class MultiStyle_Trainer(nn.Module):
         target_fea = vgg(target_vgg)
         return torch.mean((self.instancenorm(img_fea) - self.instancenorm(target_fea)) ** 2)
 
-    def sample(self, x_a, x_b):
+    def sample_multi(self, x_sc, x_dw, x_sw):
         self.eval()
-        s_t_a1 = Variable(self.s_t_a)
-        s_p_a1 = Variable(self.s_p_a)
-        s_t_b1 = Variable(self.s_t_b)
-        s_p_b1 = Variable(self.s_p_b)
-        s_t_a2 = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
-        s_p_a2 = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
-        s_t_b2 = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
-        s_p_b2 = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
-        x_a_recon, x_b_recon, x_ba1, x_ba2, x_ab1, x_ab2 = [], [], [], [], [], []
-        for i in range(x_a.size(0)):
-            c_a, s_a_t_fake, s_a_p_fake = self.gen_sc.encode(x_a[i].unsqueeze(0))
-            c_b, s_b_t_fake, s_b_p_fake = self.gen_dw.encode(x_b[i].unsqueeze(0))
-            x_a_recon.append(self.decode(
-                c_a, 
-                [s_a_t_fake, s_a_p_fake],
-                self.gen_sc,
-                [self.gen_sc, self.gen_sc]
+
+        s_sc_t = Variable(torch.randn(x_sc.size(0), self.style_dim, 1, 1).cuda())
+        s_sc_p = Variable(torch.randn(x_sc.size(0), self.style_dim, 1, 1).cuda())
+        s_dw_t = Variable(torch.randn(x_dw.size(0), self.style_dim, 1, 1).cuda())
+        s_dw_p = Variable(torch.randn(x_dw.size(0), self.style_dim, 1, 1).cuda())
+        s_sw_t = Variable(torch.randn(x_sw.size(0), self.style_dim, 1, 1).cuda())
+        s_sw_p = Variable(torch.randn(x_sw.size(0), self.style_dim, 1, 1).cuda())
+
+        # this recon is slightly different from gen_update
+        # only recon itself
+        # CROSS only use one item in the list
+        sc_recon, dw_recon, sw_recon = [], [], []
+        sc_cross, dw_cross, sw_cross = [], [], []
+        for i in range(x_sc.size(0)):
+            c_sc, s_sc_t_fake, s_sc_p_fake = self.gen.encode(x_sc[i].unsqueeze(0))
+            c_dw, s_dw_t_fake, s_dw_p_fake = self.gen.encode(x_dw[i].unsqueeze(0))
+            c_sw, s_sw_t_fake, s_sw_p_fake = self.gen.encode(x_sw[i].unsqueeze(0))
+            sc_recon.append(self.gen.decode(
+                c_sc, 
+                [s_sc_t_fake, s_sc_p_fake],
+                {'t': 'cloth', 'p': 'static'}
             ))
-            x_b_recon.append(self.decode(
-                c_b, 
-                [s_b_t_fake, s_b_p_fake],
-                self.gen_dw,
-                [self.gen_dw, self.gen_dw]
+            dw_recon.append(self.gen.decode(
+                c_dw, 
+                [s_dw_t_fake, s_dw_p_fake],
+                {'t': 'water', 'p': 'dynamic'}
             ))
-            x_ba1.append(self.decode(
-                c_b,
-                [s_t_a1[i].unsqueeze(0), s_p_a1[i].unsqueeze(0)],
-                self.gen_dw,
-                [self.gen_sc, self.gen_sc]
+            sw_recon.append(self.gen.decode(
+                c_sw, 
+                [s_sw_t_fake, s_sw_p_fake],
+                {'t': 'water', 'p': 'static'}
             ))
-            x_ba2.append(self.decode(
-                c_b, 
-                [s_t_a2[i].unsqueeze(0), s_p_a2[i].unsqueeze(0)],
-                self.gen_dw,
-                [self.gen_sc, self.gen_sc]
+
+            sc_cross.append(self.gen.decode(
+                c_dw,
+                [s_sc_t[i].unsqueeze(0), s_sc_p[i].unsqueeze(0)],
+                {'t': 'cloth', 'p': 'static'}
             ))
-            x_ab1.append(self.decode(
-                c_a, 
-                [s_t_b1[i].unsqueeze(0), s_p_b1[i].unsqueeze(0)],
-                self.gen_sc,
-                [self.gen_dw, self.gen_dw]
+            dw_cross.append(self.decode(
+                c_sw,
+                [s_dw_t_fake.unsqueeze(0), s_dw_p.unsqueeze(0)],
+                {'t': 'cloth', 'p': 'static'}
             ))
-            x_ab2.append(self.decode(
-                c_a, 
-                [s_t_b2[i].unsqueeze(0), s_p_b2[i].unsqueeze(0)],
-                self.gen_sc,
-                [self.gen_dw, self.gen_dw]
+            sw_cross.append(self.decode(
+                c_dw,
+                [s_dw_t_fake.unsqueeze(0), s_sw_p_fake.unsqueeze(0)],
+                {'t': 'cloth', 'p': 'static'}
             ))
-        x_a_recon, x_b_recon = torch.cat(x_a_recon), torch.cat(x_b_recon)
-        x_ba1, x_ba2 = torch.cat(x_ba1), torch.cat(x_ba2)
-        x_ab1, x_ab2 = torch.cat(x_ab1), torch.cat(x_ab2)
+
+
+        sc_recon, dw_recon, sw_recon = torch.cat(sc_recon), torch.cat(dw_recon), torch.cat(sw_recon)
+        sc_cross, dw_cross, sw_cross = torch.cat(sc_recon), torch.cat(dw_recon), torch.cat(sw_recon)
+        # x_ba1, x_ba2 = torch.cat(x_ba1), torch.cat(x_ba2)
+        # x_ab1, x_ab2 = torch.cat(x_ab1), torch.cat(x_ab2)
         self.train()
-        return x_a, x_a_recon, x_ab1, x_ab2, x_b, x_b_recon, x_ba1, x_ba2
+        return  x_sc, sc_recon, sc_cross, \
+                x_dw, dw_recon, dw_cross, \
+                x_sw, sw_recon, sw_cross
 
     def dis_update(self, x_sc, x_dw, x_sw, opt):
         """
@@ -343,9 +351,12 @@ class MultiStyle_Trainer(nn.Module):
         s_sw_p = Variable(torch.randn(x_dw.size(0), self.style_dim, 1, 1).cuda())
 
         # -------------------------encode------------------------------------
-        c_sc, s_sc_t_prime, s_sc_p_prime = self.gen.encode(x_sc)
-        c_dw, s_dw_t_prime, s_dw_p_prime = self.gen.encode(x_dw)
-        c_sw, s_sw_t_prime, s_sw_p_prime = self.gen.encode(x_sw)
+        sc_info = {'p': 'static', 't': 'cloth'}
+        dw_info = {'p': 'dynamic', 't': 'water'}
+        sw_info = {'p': 'static', 't': 'water'}
+        c_sc, s_sc_t_prime, s_sc_p_prime = self.gen.encode(x_sc, sc_info)
+        c_dw, s_dw_t_prime, s_dw_p_prime = self.gen.encode(x_dw, dw_info)
+        c_sw, s_sw_t_prime, s_sw_p_prime = self.gen.encode(x_sw, sw_info)
 
         if opt['style_pack'] == 'list':
             t_w_prime = [s_dw_t_prime, s_sw_t_prime]
@@ -408,14 +419,16 @@ class MultiStyle_Trainer(nn.Module):
         # Load generators
         last_model_name = get_model_list(checkpoint_dir, "gen")
         state_dict = torch.load(last_model_name)
-        self.gen_sc.load_state_dict(state_dict['a'])
-        self.gen_dw.load_state_dict(state_dict['b'])
+     #   self.gen_sc.load_state_dict(state_dict['a'])
+      #  self.gen_dw.load_state_dict(state_dict['b'])
+        self.gen.load_state_dict(state_dict['multistyle-gen'])
         iterations = int(last_model_name[-11:-3])
         # Load discriminators
         last_model_name = get_model_list(checkpoint_dir, "dis")
         state_dict = torch.load(last_model_name)
-        self.dis_sc.load_state_dict(state_dict['a'])
-        self.dis_dw.load_state_dict(state_dict['b'])
+        self.dis_sc.load_state_dict(state_dict['sc'])
+        self.dis_dw.load_state_dict(state_dict['dw'])
+        self.dis_sw.load_state_dict(state_dict['sw'])
         # Load optimizers
         state_dict = torch.load(os.path.join(checkpoint_dir, 'optimizer.pt'))
         self.dis_opt.load_state_dict(state_dict['dis'])
@@ -431,27 +444,11 @@ class MultiStyle_Trainer(nn.Module):
         gen_name = os.path.join(snapshot_dir, 'gen_%08d.pt' % (iterations + 1))
         dis_name = os.path.join(snapshot_dir, 'dis_%08d.pt' % (iterations + 1))
         opt_name = os.path.join(snapshot_dir, 'optimizer.pt')
-        torch.save({'a': self.gen_sc.state_dict(), 'b': self.gen_dw.state_dict()}, gen_name)
-        torch.save({'a': self.dis_sc.state_dict(), 'b': self.dis_dw.state_dict()}, dis_name)
+      #  torch.save({'a': self.gen_sc.state_dict(), 'b': self.gen_dw.state_dict()}, gen_name)
+        torch.save({'multistyle-gen': self.gen.state_dict()}, gen_name)
+        torch.save(
+            {'sc': self.dis_sc.state_dict(), 
+            'dw': self.dis_dw.state_dict(),
+            'sw': self.dis_sw.state_dict()}, 
+            dis_name)
         torch.save({'gen': self.gen_opt.state_dict(), 'dis': self.dis_opt.state_dict()}, opt_name)
-
-    def decode(self, content, style_codes:list, content_gen, style_gen:list):
-        """ 
-            Decode content and style codes to an image 
-            style_codes && style_gen should in order : [texture, physic]
-            Style decoder should be called before content decoder !
-        """
-        
-        style_texture, style_physic = style_codes
-        texture_decoder, physic_decoder = style_gen[0].texture_decoder, style_gen[1].physic_decoder
-        # self.logger.info('---------------------decoding------------------------')
-        adain_params_t = style_gen[0].mlp_texture(style_texture)
-        adain_params_p = style_gen[1].mlp_physic(style_physic)
-        style_gen[0].assign_decoder_AdaIn(adain_params_t, texture_decoder)
-        style_gen[1].assign_decoder_AdaIn(adain_params_p, physic_decoder)
-        # We split the MUNIT decoder
-        # self.logger.info(f'content :{content.shape}')
-        feature = texture_decoder(content)
-        feature = physic_decoder(feature)
-        images = content_gen.content_decoder(feature)
-        return images

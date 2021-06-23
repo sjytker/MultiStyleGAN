@@ -58,25 +58,26 @@ train_display_s_water = torch.stack([train_loader_s_water.dataset[i] for i in ra
 model_name = os.path.splitext(os.path.basename(opts.config))[0]
 train_writer = tensorboardX.SummaryWriter(os.path.join(opts.output_path + "/logs", model_name))
 output_directory = os.path.join(opts.output_path + "/outputs", model_name)
-output_directory += "8len_4nres_split_decoder"
+output_directory += "6len_3nres"
 checkpoint_directory, image_directory = prepare_sub_folder(output_directory)
 shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy config file to output folder
 
 # Start training
-iterations = trainer.resume(checkpoint_directory, hyperparameters=config) if opts.resume else 0
+iterations = trainer.resume(checkpoint_directory, opt=config) if opts.resume else 0
+print('starting from iter : ', iterations)
 len_sc = len(train_loader_s_cloth)
 len_dw = len(train_loader_d_water)
 len_sw = len(train_loader_s_water)
 
 def get_img():
-    return train_loader_s_cloth[iterations] % len_sc, \
-        train_loader_d_water[iterations] % len_dw, \
-        train_loader_s_water[iterations] % len_sw
+    return train_loader_s_cloth.dataset[iterations % len_sc], \
+        train_loader_d_water.dataset[iterations % len_dw], \
+        train_loader_s_water.dataset[iterations % len_sw]
 
 while True:
     sc, dw, sw = get_img()
     trainer.update_learning_rate()
-    sc, dw, sw = sc.cuda().detach(), dw.cuda().detach(), sw.cuda().detach()
+    sc, dw, sw = sc.cuda().unsqueeze(0).detach(), dw.unsqueeze(0).cuda().detach(), sw.unsqueeze(0).cuda().detach()
 
     with Timer("Elapsed time in update: %f"):
         # Main training code
@@ -89,19 +90,19 @@ while True:
         print("Iteration: %08d/%08d" % (iterations + 1, max_iter))
         write_loss(iterations, trainer, train_writer)
 
-    # Write images
+    Write images
     if (iterations + 1) % config['image_save_iter'] == 0:
         with torch.no_grad():
-            test_image_outputs = trainer.sample(test_display_images_a, test_display_images_b)
-            train_image_outputs = trainer.sample(train_display_images_a, train_display_images_b)
-        write_2images(test_image_outputs, display_size, image_directory, 'test_%08d' % (iterations + 1))
+         #   test_image_outputs = trainer.sample(test_display_images_a, test_display_images_b)
+            train_image_outputs = trainer.sample_multi(train_display_s_cloth, train_display_d_water, train_display_s_water)
+       # write_2images(test_image_outputs, display_size, image_directory, 'test_%08d' % (iterations + 1))
         write_2images(train_image_outputs, display_size, image_directory, 'train_%08d' % (iterations + 1))
         # HTML
         write_html(output_directory + "/index.html", iterations + 1, config['image_save_iter'], 'images')
 
     if (iterations + 1) % config['image_display_iter'] == 0:
         with torch.no_grad():
-            image_outputs = trainer.sample(train_display_images_a, train_display_images_b)
+            image_outputs = trainer.sample(train_display_s_cloth, train_display_d_water, train_display_s_water)
         write_2images(image_outputs, display_size, image_directory, 'train_current')
 
     # Save network weights

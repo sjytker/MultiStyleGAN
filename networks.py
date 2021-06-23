@@ -91,7 +91,7 @@ class MsImageDis(nn.Module):
 
 class MultiStyle_Gen(nn.Module):
     def __init__(self, input_dim, params):
-        super(AdaINGen, self).__init__()
+        super(MultiStyle_Gen, self).__init__()
         dim = params['dim']
         style_dim = params['style_dim']
         n_downsample = params['n_downsample']
@@ -104,8 +104,8 @@ class MultiStyle_Gen(nn.Module):
         self.enc_content_cloth = ContentEncoder(n_downsample, n_res, input_dim, dim, 'in', activ, pad_type=pad_type)       
         self.enc_content_water = ContentEncoder(n_downsample, n_res, input_dim, dim, 'in', activ, pad_type=pad_type)       
 
-        self.dec_content_cloth = ContentDecoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
-        self.dec_content_water = ContentDecoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
+        self.dec_content_cloth = ContentDecoder(n_downsample, n_res, self.enc_content_cloth.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
+        self.dec_content_water = ContentDecoder(n_downsample, n_res, self.enc_content_water.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
 
         # style encoder
         self.enc_texture_cloth = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
@@ -113,14 +113,16 @@ class MultiStyle_Gen(nn.Module):
         self.enc_physic_static = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
         self.enc_physic_dynamic = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
 
-        self.dec_texture_cloth = StyleDecoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
-        self.dec_texture_water = StyleDecoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
-        self.dec_physic_static = StyleDecoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
-        self.dec_physic_dynamic = StyleDecoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
+        self.dec_texture_cloth = StyleDecoder(n_downsample, n_res, self.enc_content_cloth.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
+        self.dec_texture_water = StyleDecoder(n_downsample, n_res, self.enc_content_water.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
+        self.dec_physic_static = StyleDecoder(n_downsample, n_res, self.enc_content_cloth.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
+        self.dec_physic_dynamic = StyleDecoder(n_downsample, n_res, self.enc_content_water.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
 
         # MLP to generate AdaIN parameters
-        self.mlp_texture = MLP(style_dim, self.get_num_adain_params(self.texture_decoder), mlp_dim, 3, norm='none', activ=activ)
-        self.mlp_physic = MLP(style_dim, self.get_num_adain_params(self.physic_decoder), mlp_dim, 3, norm='none', activ=activ)
+        self.mlp_texture_cloth = MLP(style_dim, self.get_num_adain_params(self.dec_texture_cloth), mlp_dim, 3, norm='none', activ=activ)
+        self.mlp_texture_water = MLP(style_dim, self.get_num_adain_params(self.dec_texture_water), mlp_dim, 3, norm='none', activ=activ)
+        self.mlp_physic_static = MLP(style_dim, self.get_num_adain_params(self.dec_physic_static), mlp_dim, 3, norm='none', activ=activ)
+        self.mlp_physic_dynamic = MLP(style_dim, self.get_num_adain_params(self.dec_physic_dynamic), mlp_dim, 3, norm='none', activ=activ)
 
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -138,9 +140,9 @@ class MultiStyle_Gen(nn.Module):
         else:
             raise NotImplementedError
 
-        if info['p'] == 's':
+        if info['p'] == 'static':
             style_physic = self.enc_physic_static(images)
-        elif info['p'] == 'd':
+        elif info['p'] == 'dynamic':
             style_physic = self.enc_physic_dynamic(images)
         else:
             raise NotImplementedError
@@ -150,27 +152,32 @@ class MultiStyle_Gen(nn.Module):
         # decode content and style codes to an image
         
         style_texture, style_physic = style_codes
+        mlp_texture, mlp_physic = None, None
         texture_decoder, physic_decoder = None, None
         content_decoder = None
         if info['t'] == 'cloth':
             texture_decoder = self.dec_texture_cloth
             content_decoder = self.dec_content_cloth
+            mlp_texture = self.mlp_texture_cloth
         elif info['t'] == 'water':
             texture_decoder = self.dec_texture_water
             content_decoder = self.dec_content_water
+            mlp_texture = self.mlp_texture_water
         else:
             raise NotImplementedError
 
-        if info['p'] == 's':
+        if info['p'] == 'static':
             physic_decoder = self.dec_physic_static
-        elif info['p'] == 'd':
+            mlp_physic = self.mlp_physic_static
+        elif info['p'] == 'dynamic':
             physic_decoder = self.dec_physic_dynamic
+            mlp_physic = self.mlp_physic_dynamic
         else:
             raise NotImplementedError        
 
         # self.logger.info('---------------------decoding------------------------')
-        adain_params_t = self.mlp_texture(style_texture)
-        adain_params_p = self.mlp_physic(style_physic)
+        adain_params_t = mlp_texture(style_texture)
+        adain_params_p = mlp_physic(style_physic)
         self.assign_decoder_AdaIn(adain_params_t, texture_decoder)
         self.assign_decoder_AdaIn(adain_params_p, physic_decoder)
         # We split the MUNIT decoder
