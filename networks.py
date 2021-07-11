@@ -100,29 +100,36 @@ class MultiStyle_Gen(nn.Module):
         pad_type = params['pad_type']
         mlp_dim = params['mlp_dim']
 
-        # content encoder
-        self.enc_content_cloth = ContentEncoder(n_downsample, n_res, input_dim, dim, 'in', activ, pad_type=pad_type)       
-        self.enc_content_water = ContentEncoder(n_downsample, n_res, input_dim, dim, 'in', activ, pad_type=pad_type)       
-
-        self.dec_content_cloth = ContentDecoder(n_downsample, n_res, self.enc_content_cloth.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
-        self.dec_content_water = ContentDecoder(n_downsample, n_res, self.enc_content_water.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
+        CONTENT_INPUT_DIM = 256
 
         # style encoder
-        self.enc_texture_cloth = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
-        self.enc_texture_water = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
-        self.enc_physic_static = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
-        self.enc_physic_dynamic = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
+        self.dec_texture_cloth = StyleDecoder(n_downsample, n_res, CONTENT_INPUT_DIM, input_dim, res_norm='adain',
+                                              activ=activ, pad_type=pad_type)
+        self.dec_texture_water = StyleDecoder(n_downsample, n_res, CONTENT_INPUT_DIM, input_dim, res_norm='adain',
+                                              activ=activ, pad_type=pad_type)
+        self.dec_physic_static = StyleDecoder(n_downsample, n_res, CONTENT_INPUT_DIM, input_dim, res_norm='adain',
+                                              activ=activ, pad_type=pad_type)
+        self.dec_physic_dynamic = StyleDecoder(n_downsample, n_res, CONTENT_INPUT_DIM, input_dim, res_norm='adain',
+                                               activ=activ, pad_type=pad_type)
+        adain_dim = self.get_num_adain_params(self.dec_texture_cloth)
 
-        self.dec_texture_cloth = StyleDecoder(n_downsample, n_res, self.enc_content_cloth.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
-        self.dec_texture_water = StyleDecoder(n_downsample, n_res, self.enc_content_water.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
-        self.dec_physic_static = StyleDecoder(n_downsample, n_res, self.enc_content_cloth.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
-        self.dec_physic_dynamic = StyleDecoder(n_downsample, n_res, self.enc_content_water.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
+        self.enc_texture_cloth = StyleEncoder(4, input_dim, dim, adain_dim, norm='none', activ=activ, pad_type=pad_type)
+        self.enc_texture_water = StyleEncoder(4, input_dim, dim, adain_dim, norm='none', activ=activ, pad_type=pad_type)
+        self.enc_physic_static = StyleEncoder(4, input_dim, dim, adain_dim, norm='none', activ=activ, pad_type=pad_type)
+        self.enc_physic_dynamic = StyleEncoder(4, input_dim, dim, adain_dim, norm='none', activ=activ, pad_type=pad_type)
+
+        # content encoder
+        self.enc_content_cloth = ContentEncoder(n_downsample, n_res, input_dim, dim, 'in', activ, pad_type=pad_type)
+        self.enc_content_water = ContentEncoder(n_downsample, n_res, input_dim, dim, 'in', activ, pad_type=pad_type)
+
+        self.dec_content_cloth = ContentDecoder(n_downsample, n_res, CONTENT_INPUT_DIM, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
+        self.dec_content_water = ContentDecoder(n_downsample, n_res, CONTENT_INPUT_DIM, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
 
         # MLP to generate AdaIN parameters
-        self.mlp_texture_cloth = MLP(style_dim, self.get_num_adain_params(self.dec_texture_cloth), mlp_dim, 3, norm='none', activ=activ)
-        self.mlp_texture_water = MLP(style_dim, self.get_num_adain_params(self.dec_texture_water), mlp_dim, 3, norm='none', activ=activ)
-        self.mlp_physic_static = MLP(style_dim, self.get_num_adain_params(self.dec_physic_static), mlp_dim, 3, norm='none', activ=activ)
-        self.mlp_physic_dynamic = MLP(style_dim, self.get_num_adain_params(self.dec_physic_dynamic), mlp_dim, 3, norm='none', activ=activ)
+        self.mlp_texture_cloth = MLP(style_dim, adain_dim, mlp_dim, 3, norm='none', activ=activ)
+        self.mlp_texture_water = MLP(style_dim, adain_dim, mlp_dim, 3, norm='none', activ=activ)
+        self.mlp_physic_static = MLP(style_dim, adain_dim, mlp_dim, 3, norm='none', activ=activ)
+        self.mlp_physic_dynamic = MLP(style_dim, adain_dim, mlp_dim, 3, norm='none', activ=activ)
 
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -148,13 +155,61 @@ class MultiStyle_Gen(nn.Module):
             raise NotImplementedError
         return content, style_texture, style_physic
 
-    def decode(self, content, style_codes:List, info):
+    def decode(self, content, style:List, info):
+        # Now, info contains style types and code/noise. 
+        style_texture, style_physic = style
+        # mlp_texture, mlp_physic = None, None
+        # texture_decoder, physic_decoder = None, None
+        # content_decoder = None
+        if info['t'] == 'cloth':
+            texture_decoder = self.dec_texture_cloth
+            content_decoder = self.dec_content_cloth
+            mlp_texture = self.mlp_texture_cloth
+        elif info['t'] == 'water':
+            texture_decoder = self.dec_texture_water
+            content_decoder = self.dec_content_water
+            mlp_texture = self.mlp_texture_water
+        else:
+            raise NotImplementedError
+
+        if info['p'] == 'static':
+            physic_decoder = self.dec_physic_static
+            mlp_physic = self.mlp_physic_static
+        elif info['p'] == 'dynamic':
+            physic_decoder = self.dec_physic_dynamic
+            mlp_physic = self.mlp_physic_dynamic
+        else:
+            raise NotImplementedError        
+
+        # self.logger.info('---------------------decoding------------------------')
+        if info['t'].split('_')[1] == 'noise':
+            adain_params_t = mlp_texture(style_texture)
+        elif info['t'].split('_')[1] == 'code':
+            adain_params_t = style_texture
+        else:
+            raise NotImplementedError
+        if info['p'].split('-')[1] == 'noise':
+            adain_params_p = mlp_physic(style_physic)
+        elif info['p'].split('-')[1] == 'code':
+            adain_params_p = style_physic
+        else:
+            raise NotImplementedError
+        self.assign_decoder_AdaIn(adain_params_t, texture_decoder)
+        self.assign_decoder_AdaIn(adain_params_p, physic_decoder)
+        # We split the MUNIT decoder
+        feature = texture_decoder(content)
+        feature = physic_decoder(feature)
+        images = content_decoder(feature)
+        return images
+
+
+    def decode_style_noise(self, content, style_noise:List, info):
         # decode content and style codes to an image
         
-        style_texture, style_physic = style_codes
-        mlp_texture, mlp_physic = None, None
-        texture_decoder, physic_decoder = None, None
-        content_decoder = None
+        style_texture, style_physic = style_noise
+        # mlp_texture, mlp_physic = None, None
+        # texture_decoder, physic_decoder = None, None
+        # content_decoder = None
         if info['t'] == 'cloth':
             texture_decoder = self.dec_texture_cloth
             content_decoder = self.dec_content_cloth
@@ -178,6 +233,42 @@ class MultiStyle_Gen(nn.Module):
         # self.logger.info('---------------------decoding------------------------')
         adain_params_t = mlp_texture(style_texture)
         adain_params_p = mlp_physic(style_physic)
+        self.assign_decoder_AdaIn(adain_params_t, texture_decoder)
+        self.assign_decoder_AdaIn(adain_params_p, physic_decoder)
+        # We split the MUNIT decoder
+        feature = texture_decoder(content)
+        feature = physic_decoder(feature)
+        images = content_decoder(feature)
+        return images
+
+    def decode_style_code(self, content, style_codes:List, info):
+        # decode content and style codes to an image
+        
+        style_texture, style_physic = style_codes
+        if info['t'] == 'cloth':
+            texture_decoder = self.dec_texture_cloth
+            content_decoder = self.dec_content_cloth
+         #   mlp_texture = self.mlp_texture_cloth
+        elif info['t'] == 'water':
+            texture_decoder = self.dec_texture_water
+            content_decoder = self.dec_content_water
+         #   mlp_texture = self.mlp_texture_water
+        else:
+            raise NotImplementedError
+
+        if info['p'] == 'static':
+            physic_decoder = self.dec_physic_static
+            mlp_physic = self.mlp_physic_static
+        elif info['p'] == 'dynamic':
+            physic_decoder = self.dec_physic_dynamic
+            mlp_physic = self.mlp_physic_dynamic
+        else:
+            raise NotImplementedError        
+
+        # self.logger.info('---------------------decoding------------------------')
+        # adain_params_t = mlp_texture(style_texture)
+        # adain_params_p = mlp_physic(style_physic)
+        adain_params_t,adain_params_p = style_codes
         self.assign_decoder_AdaIn(adain_params_t, texture_decoder)
         self.assign_decoder_AdaIn(adain_params_p, physic_decoder)
         # We split the MUNIT decoder
@@ -215,110 +306,6 @@ class MultiStyle_Gen(nn.Module):
             if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
                 num_adain_params += 2*m.num_features
         return num_adain_params
-
-
-class AdaINGen(nn.Module):
-    # AdaIN auto-encoder architecture
-    def __init__(self, input_dim, params):
-        super(AdaINGen, self).__init__()
-        dim = params['dim']
-        style_dim = params['style_dim']
-        n_downsample = params['n_downsample']
-        n_res = params['n_res']
-        activ = params['activ']
-        pad_type = params['pad_type']
-        mlp_dim = params['mlp_dim']
-
-        # style encoder
-        self.enc_style_texture = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
-        self.enc_style_physic = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
-
-        # content encoder
-        self.enc_content = ContentEncoder(n_downsample, n_res, input_dim, dim, 'in', activ, pad_type=pad_type)
-
-        # TODO: ----------- compared with MUNIT, here we should use 2 * style_dim -------------------
-        # self.dec = Decoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)  # orld version
-        # self.mlp_ori = MLP(2 * style_dim, self.get_num_adain_params(self.dec), mlp_dim, 3, norm='none', activ=activ)   # old version
-
-        # TODO: ---------- Now we split the MUNIT whole decoder into [texture, physic, content]
-        self.texture_decoder = StyleDecoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
-        self.physic_decoder = StyleDecoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
-        self.content_decoder = ContentDecoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
-       
-        # MLP to generate AdaIN parameters
-        self.mlp_texture = MLP(style_dim, self.get_num_adain_params(self.texture_decoder), mlp_dim, 3, norm='none', activ=activ)
-        self.mlp_physic = MLP(style_dim, self.get_num_adain_params(self.physic_decoder), mlp_dim, 3, norm='none', activ=activ)
-
-        self.logger = logging.getLogger(self.__class__.__name__)
-
-    # def forward(self, images):
-    #     # reconstruct an image
-    #     content, style_texture, style_physic = self.encode(images)
-    #     images_recon = self.decode(content, style_texture, style_physic)
-    #     return images_recon
-
-    def encode(self, images):
-        # encode an image to its content and style codes
-        style_texture = self.enc_style_texture(images)
-        style_physic = self.enc_style_physic(images)
-        content = self.enc_content(images)
-        return content, style_texture, style_physic
-
-    def decode_ori(self, content, style_texture, style_physic):
-        # decode content and style codes to an image
-        style = torch.cat([style_texture, style_physic], dim=1)
-        # self.logger.info('------------------------------------------------')
-        adain_params = self.mlp(style)
-        self.assign_adain_params(adain_params, self.dec)
-        images = self.dec(content)
-        return images
-
-    def decode(self, content, style_codes:List, style_decoders:List):
-        # decode content and style codes to an image
-        
-        style_texture, style_physic = style_codes
-        texture_decoder, physic_decoder = style_decoders
-        # self.logger.info('---------------------decoding------------------------')
-        adain_params_t = self.mlp_texture(style_texture)
-        adain_params_p = self.mlp_physic(style_physic)
-        self.assign_decoder_AdaIn(adain_params_t, texture_decoder)
-        self.assign_decoder_AdaIn(adain_params_p, physic_decoder)
-        # We split the MUNIT decoder
-        feature = texture_decoder(content)
-        feature = physic_decoder(feature)
-        images = self.content_decoder(feature)
-        return images
-
-    def assign_decoder_AdaIn(self, adain_params, dec):
-        # assign the adain_params to the AdaIN layers in dec
-        for m in dec.modules():
-            if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
-                mean = adain_params[:, :m.num_features]
-                std = adain_params[:, m.num_features:2*m.num_features]
-                m.bias = mean.contiguous().view(-1)
-                m.weight = std.contiguous().view(-1)
-                if adain_params.size(1) > 2*m.num_features:
-                    adain_params = adain_params[:, 2*m.num_features:]        
-
-    def assign_adain_params(self, adain_params, model):
-        # assign the adain_params to the AdaIN layers in model
-        for m in model.modules():
-            if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
-                mean = adain_params[:, :m.num_features]
-                std = adain_params[:, m.num_features:2*m.num_features]
-                m.bias = mean.contiguous().view(-1)
-                m.weight = std.contiguous().view(-1)
-                if adain_params.size(1) > 2*m.num_features:
-                    adain_params = adain_params[:, 2*m.num_features:]
-
-    def get_num_adain_params(self, model):
-        # return the number of AdaIN parameters needed by the model
-        num_adain_params = 0
-        for m in model.modules():
-            if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
-                num_adain_params += 2*m.num_features
-        return num_adain_params
-
 
 ##################################################################################
 # Encoder and Decoders
@@ -359,35 +346,14 @@ class ContentEncoder(nn.Module):
     def forward(self, x):
         return self.model(x)
 
-class Decoder_ori(nn.Module):
-    def __init__(self, n_upsample, n_res, dim, output_dim, res_norm='adain', activ='relu', pad_type='zero'):
-        super(Decoder_ori, self).__init__()
-
-        self.model = []
-        # AdaIN residual blocks
-        # TODO: ------------------Core Change--------------
-        self.model += [ResBlocks(n_res, dim, res_norm, activ, pad_type=pad_type)]
-        # upsampling blocks
-        for i in range(n_upsample):
-            self.model += [nn.Upsample(scale_factor=2),
-                           Conv2dBlock(dim, dim // 2, 5, 1, 2, norm='ln', activation=activ, pad_type=pad_type)]
-            dim //= 2
-        # use reflection padding in the last conv layer
-        self.model += [Conv2dBlock(dim, output_dim, 7, 1, 3, norm='none', activation='tanh', pad_type=pad_type)]
-        self.model = nn.Sequential(*self.model)
-
-    def forward(self, x):
-        return self.model(x)
-
-
 class StyleDecoder(nn.Module):
-    def __init__(self, n_upsample, n_res, dim, output_dim, res_norm='adain', activ='relu', pad_type='zero'):
+    def __init__(self, n_upsample, n_res, input_dim, output_dim, res_norm='adain', activ='relu', pad_type='zero'):
         super(StyleDecoder, self).__init__()
 
         self.model = []
         # AdaIN residual blocks
         # TODO: ------------------Core Change--------------
-        self.model += [ResBlocks(n_res, dim, res_norm, activ, pad_type=pad_type)]
+        self.model += [ResBlocks(n_res, input_dim, res_norm, activ, pad_type=pad_type)]
         self.model = nn.Sequential(*self.model)
 
     def forward(self, x):
